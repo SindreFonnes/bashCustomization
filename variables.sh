@@ -2,6 +2,10 @@
 
 ### Windows
 handle_wsl () {
+	if [[ "$OSTYPE" == *"darwin"* ]]; then
+		return 0;
+	fi
+	
 	local system_info="$(cat /proc/version | tr '[:upper:]' '[:lower:]')";
 	if [[ "$system_info" == *"wsl"* ]]; then
 		win_main_drive_path="/mnt/c";

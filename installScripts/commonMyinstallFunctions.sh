@@ -73,6 +73,10 @@ is_mac_os () {
 }
 
 is_wsl_os () {
+    if [[ "$OSTYPE" == *"darwin"* ]]; then
+        return 1;
+    fi
+    
     if [[ $(cat /proc/version | tr '[:upper:]' '[:lower:]') == *"wsl"* ]]; then
         return 0;
     fi

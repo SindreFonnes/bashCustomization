@@ -11,6 +11,8 @@ determine_running_os () {
 	# Check if it is running on mac
 	if [[ "$OSTYPE" == *"darwin"* ]]; then
 		IS_MAC=true;
+		IS_WSL=false;
+		return 0;
 	else
 		IS_MAC=false;
 	fi
