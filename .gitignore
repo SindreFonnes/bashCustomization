@@ -1,0 +1,4 @@
+*.tar.gz
+target
+local/*
+!local/local_main.sh
