@@ -1,8 +1,10 @@
 # This function takes a string as the first parameter, and a second string as the second.
 # It then checks the first string for any occurance of the first string, and then returns the exit code of grep.
 check_param_for_string () {
-	echo $1 | grep $2 &> /dev/null;
-	return;
+	if [[ $1 == *"$2"* ]]; then
+		return 0;
+	fi
+	return 1;
 }
 
 determine_running_os () {
@@ -14,8 +16,8 @@ determine_running_os () {
 	fi
 
 	# Check if it is running in wsl
-	cat /proc/version | tr '[:upper:]' '[:lower:]' | grep wsl &> /dev/null;
-	if [[ $? -eq 0 ]]; then
+	local system_info="$(cat /proc/version | tr '[:upper:]' '[:lower:]')";
+	if [[ "$system_info" == *"wsl"* ]]; then
 		IS_WSL=true;
 	else
 		IS_WSL=false;
@@ -40,6 +42,7 @@ determine_running_shell () {
 }
 
 load_shell_extentionfiles () {
+	source $bashC/general_functions.sh &&
 	source $bashC/variables.sh &&
 	source $bashC/shellFunctionality/shellMain.sh &&
 	source $bashC/standard_settings.sh &&
