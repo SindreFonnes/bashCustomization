@@ -21,6 +21,7 @@ alias updateShell="git_pull_repo $bashC";
 alias getLocalIp="ip r";
 
 # Edit
+alias c.="code .";
 alias editBash="$standard_editor $bashC/main.sh";
 alias editBashrc="$standard_editor ~/.bashrc";
 alias editAlias="$standard_editor $bashC/aliases.sh";
