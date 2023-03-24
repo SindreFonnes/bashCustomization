@@ -65,7 +65,13 @@ git_add_commit_push_tag () {
 		return 1;
 	fi
 
-	if [[ $2 == "" ]]; then
+	local production="false";
+
+	if [[ $2 == "prod" ]]; then
+		production="true";
+	fi
+
+	if [[ $2 == "" || ${production} == "true" && $3 == "" ]]; then
 		echo "You must include a commit message"
 		echo "Exiting...";
 		return 1;
@@ -98,7 +104,13 @@ git_add_commit_push_tag () {
 		version_number="$1";
 	fi
 
-	local commitMessage="${@:2}";
+	local commitMessage="";
+
+	if [[ ${production} == "true" ]]; then
+		commitMessage="${@:3}";
+	else
+		commitMessage="${@:2}";
+	fi
 
 	if [[ -f "./package.json" ]]; then
 		change_package_json_version "$version_number";
@@ -108,8 +120,14 @@ git_add_commit_push_tag () {
 		return 1;
 	fi
 
+	local git_tag="$version_number";
+
+	if [[ ${production} == "true" ]]; then
+		git_tag+="-prod";
+	fi
+
 	git_add_commit_push $commitMessage &&
-	git_tag_commit $version_number;
+	git_tag_commit $git_tag;
 }
 
 git_add_commit_push_tag ${@}
