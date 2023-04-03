@@ -14,8 +14,9 @@ echo -e "if [ -f ~/bashCustomization/main.sh ]; then\n. ~/bashCustomization/main
 bashC="$HOME/bashCustomization";
 
 # Adding git configuration
-chmod +x $bashC/gitCustomizations/configureGit.sh;
-$bashC/gitCustomizations/configureGit.sh;
+## TODO: Add option to decline configuring git. Also add flag to auto skip this prompt
+chmod +x $bashC/generalScripts/configureGit.sh;
+$bashC/generalScripts/configureGit.sh;
 
 # Adding sorting folders
 mkdir $HOME/p;
