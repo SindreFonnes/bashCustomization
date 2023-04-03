@@ -32,6 +32,7 @@ determine_install_script_to_use () {
 		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
         local RUST_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/rust/installRust.sh;
 		local TERRAFORM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/terraform/installTerraform.sh;
+        local NEOVIM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/neovim/installNeovim.sh;
 
         local input=($@);
 
@@ -73,17 +74,23 @@ determine_install_script_to_use () {
 				run_install_script "$DOCKER_INSTALL_LOCATION"
 				;;
 
-			"${input[12]}" | "11")
+            "${input[12]}" | "11")
+                run_install_script "$NEOVIM_INSTALL_LOCATION"
+                ;;
+
+			"${input[13]}" | "12")
                 echo "Running all scripts sequentialy..." &&
                 run_install_script "$GO_INSTALL_LOCATION" &&
 
                 run_install_script "$DOTNET_INSTALL_LOCATION" &&
 
                 run_install_script "$RUST_INSTALL_LOCATION" &&
+                run_install_script "$NEOVIM_INSTALL_LOCATION" &&
                 
-                # Node has 2 things to install
+                # Node has 3 things to install
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "nvm" &&
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "pnpm" &&
+                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "yarn" &&
 
                 run_install_script "$JAVA_INSTALL_LOCATION" &&
 				run_install_script "$AZURE_INSTALL_LOCATION" &&
@@ -102,7 +109,7 @@ determine_install_script_to_use () {
 }
 
 use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "all")
+    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "all")
 
     if [[ $# -ne 0 ]]; then
         if [[ $# > 1 ]]; then

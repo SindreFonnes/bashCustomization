@@ -16,7 +16,9 @@ determine_running_shell;
 #fi
 
 ## Loading extending files
-load_shell_extentionfiles true
+load_shell_extentionfiles "false";
 
 # Fetch any new thing whenever the shell is started
 updateShell;
+
+load_shell_extentionfiles "first_load";

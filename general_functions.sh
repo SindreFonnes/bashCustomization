@@ -51,9 +51,9 @@ load_shell_extentionfiles () {
 	source $bashC/installScripts/installMain.sh &&
 	source $bashC/programExtensions/extentionsMain.sh &&
 	source "$local_dir/local_main.sh" &&
-	if [[ $# -eq 0 ]]; then
+	if [[ $1 == "" ]]; then
 		echo "Done reloading files!";
-	else
+	elif [[ $1 == "first_load" ]]; then
 		echo "Extentions loaded!"
 	fi
 }

@@ -5,10 +5,11 @@ sudo apt update;
 
 sudo apt upgrade -y;
 
+sudo add-apt-repository universe -y;
+
 sudo apt install \
 	build-essential \
 	git \
-	neovim \
 	safe-rm \
 	keychain \
 	nala \
@@ -21,6 +22,7 @@ sudo apt install \
 	gzip \
 	ripgrep \
 	net-tools \
+	libfuse2 \
 	-y;
 
 # Dotnet HTTPS Cert necessary package

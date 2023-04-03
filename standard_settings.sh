@@ -43,3 +43,7 @@ if command -v "go" &> /dev/null; then
 	export GOPATH=$HOME/p/go;
 	export PATH=$PATH:$GOPATH/bin;
 fi
+
+if [ -d $HOME/.mybin ]; then
+	export PATH=$PATH:$HOME/.mybin;
+fi

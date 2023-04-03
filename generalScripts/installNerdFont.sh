@@ -49,7 +49,8 @@ install_fontconfig_mac () {
 
 if [[ "$OSTYPE" == *"darwin"* ]]; then
     if ! command -v brew &> /dev/null; then
-	    run_my_install "brew";
+	    echo "Missing brew. Please install before running this script";
+		exit 1;
 	fi
 
 	if ! command -v fc-cache &> /dev/null; then
