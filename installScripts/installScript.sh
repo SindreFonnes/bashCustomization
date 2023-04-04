@@ -75,7 +75,7 @@ determine_install_script_to_use () {
 				;;
 
             "${input[12]}" | "nvim" | "11")
-                run_install_script "$NEOVIM_INSTALL_LOCATION"
+                check_install_arg "$NEOVIM_INSTALL_LOCATION" "${input[1]}"
                 ;;
 
 			"${input[13]}" | "12")

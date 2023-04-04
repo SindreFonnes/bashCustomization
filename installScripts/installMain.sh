@@ -12,3 +12,5 @@ source $MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh;
 run_my_install () {
     $MYINSTALL_SCRIPT_LOCATION $1 $2;
 }
+
+export -f run_my_install;

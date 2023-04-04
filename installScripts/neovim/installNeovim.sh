@@ -7,8 +7,10 @@ commandAlias="nvim";
 
 source $MYINSTALL_COMMON_FUNCTIONS_LOCATION;
 
-if ! script_check_if_allready_installed "$commandAlias" "$name"; then
-	exit 1;
+if ! [[ $1 == "-y" ]]; then
+	if ! script_check_if_allready_installed "$commandAlias" "$name"; then
+		exit 1;
+	fi
 fi
 
 install_for_mac () {
@@ -28,7 +30,13 @@ install_for_linux () {
 		echo "You need to add $HOME/.mybin to the path";
 	fi
 
-	mv ./nvim.appimage $HOME/.mybin/nvim;
+	local bin_name="$HOME/.mybin/nvim";
+
+	if [[ -f $bin_name ]]; then
+		rm $bin_name;
+	fi
+
+	mv ./nvim.appimage $bin_name;
 
 	script_success_message "$name";
 	exit 0;
