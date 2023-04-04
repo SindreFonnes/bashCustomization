@@ -74,7 +74,7 @@ determine_install_script_to_use () {
 				run_install_script "$DOCKER_INSTALL_LOCATION"
 				;;
 
-            "${input[12]}" | "11")
+            "${input[12]}" | "nvim" | "11")
                 run_install_script "$NEOVIM_INSTALL_LOCATION"
                 ;;
 
