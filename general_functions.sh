@@ -50,6 +50,7 @@ load_shell_extentionfiles () {
 	source $bashC/standard_settings.sh &&
 	source $bashC/installScripts/installMain.sh &&
 	source $bashC/programExtensions/extentionsMain.sh &&
+	source $bashC/generalScripts/gScriptMain.sh &&
 	source "$local_dir/local_main.sh" &&
 	if [[ $1 == "" ]]; then
 		echo "Done reloading files!";
