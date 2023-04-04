@@ -20,7 +20,7 @@ clone_nvim_chad_config () {
 
 	nvim;
 
-	nvim --headless +"TSInstall javascript"
+	nvim --headless +"TSInstall javascript typescript rust yaml toml bash"
 
 }
 
