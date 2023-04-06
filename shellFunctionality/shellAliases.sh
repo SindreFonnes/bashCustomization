@@ -19,6 +19,7 @@ alias updateShell="git_pull_repo $bashC";
 
 ### Ip stuff
 alias getLocalIp="ip r";
+alias whatismyip='curl ipecho.net/plain';
 
 # Edit
 alias c.="code .";
