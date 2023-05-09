@@ -66,12 +66,15 @@ git_add_commit_push_tag () {
 	fi
 
 	local production="false";
+	local stage="false";
 
 	if [[ $2 == "prod" ]]; then
 		production="true";
+	elif [[ $2 == "stage" ]]; then
+		stage="true";
 	fi
 
-	if [[ $2 == "" || ${production} == "true" && $3 == "" ]]; then
+	if [[ $2 == "" || ${production} == "true" && $3 == "" || ${stage} == "true" && $3 == "" ]]; then
 		echo "You must include a commit message"
 		echo "Exiting...";
 		return 1;
@@ -106,7 +109,7 @@ git_add_commit_push_tag () {
 
 	local commitMessage="";
 
-	if [[ ${production} == "true" ]]; then
+	if [[ ${production} == "true" || ${stage} == "true" ]]; then
 		commitMessage="${@:3}";
 	else
 		commitMessage="${@:2}";
@@ -124,6 +127,8 @@ git_add_commit_push_tag () {
 
 	if [[ ${production} == "true" ]]; then
 		git_tag+="-prod";
+	elif [[ ${stage} == "true" ]]; then
+		git_tag+="-stage";
 	fi
 
 	git_add_commit_push $commitMessage &&
