@@ -33,6 +33,7 @@ determine_install_script_to_use () {
         local RUST_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/rust/installRust.sh;
 		local TERRAFORM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/terraform/installTerraform.sh;
         local NEOVIM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/neovim/installNeovim.sh;
+        local POSTGRES_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/postgres/installPostgres.sh;
 
         local input=($@);
 
@@ -79,6 +80,10 @@ determine_install_script_to_use () {
                 ;;
 
 			"${input[13]}" | "12")
+                run_install_script "$POSTGRES_INSTALL_LOCATION"
+                ;;
+
+            "${input[14]}" | "13")
                 echo "Running all scripts sequentialy..." &&
                 run_install_script "$GO_INSTALL_LOCATION" &&
 
@@ -98,7 +103,7 @@ determine_install_script_to_use () {
 				run_install_script "$TERRAFORM_INSTALL_LOCATION" &&
 				run_install_script "$BREW_INSTALL_LOCATION" &&
 				run_install_script "$DOCKER_INSTALL_LOCATION" &&
-                echo "Installed everything";
+                echo "Installed everything (except postgres)";
                 ;;
             *)
                 echo "Not an available install option ${input[0]}";
@@ -109,7 +114,7 @@ determine_install_script_to_use () {
 }
 
 use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "all")
+    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "all")
 
     if [[ $# -ne 0 ]]; then
         if [[ $# > 1 ]]; then
