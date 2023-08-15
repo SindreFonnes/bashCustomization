@@ -29,11 +29,11 @@ determine_install_script_to_use () {
         local GO_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/go/installGo.sh;
         local JAVA_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/java/installJava.sh;
         local JAVASCRIPT_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/javascript/jsMain.sh;
-		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
         local RUST_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/rust/installRust.sh;
 		local TERRAFORM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/terraform/installTerraform.sh;
         local NEOVIM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/neovim/installNeovim.sh;
         local POSTGRES_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/postgres/installPostgres.sh;
+		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
 
         local input=($@);
 
@@ -83,7 +83,11 @@ determine_install_script_to_use () {
                 run_install_script "$POSTGRES_INSTALL_LOCATION"
                 ;;
 
-            "${input[14]}" | "13")
+            "${input[14]}" | "13" | "k8s")
+                run_install_script "$KUBECTL_INSTALL_LOCATION"
+                ;;
+
+            "${input[15]}" | "14")
                 echo "Running all scripts sequentialy..." &&
                 run_install_script "$GO_INSTALL_LOCATION" &&
 
@@ -103,6 +107,8 @@ determine_install_script_to_use () {
 				run_install_script "$TERRAFORM_INSTALL_LOCATION" &&
 				run_install_script "$BREW_INSTALL_LOCATION" &&
 				run_install_script "$DOCKER_INSTALL_LOCATION" &&
+                run_install_script "$POSTGRES_INSTALL_LOCATION" &&
+                run_install_script "$KUBECTL_INSTALL_LOCATION" &&
                 echo "Installed everything (except postgres)";
                 ;;
             *)
@@ -114,7 +120,7 @@ determine_install_script_to_use () {
 }
 
 use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "all")
+    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "all")
 
     if [[ $# -ne 0 ]]; then
         if [[ $# > 1 ]]; then
