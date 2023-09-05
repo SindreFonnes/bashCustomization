@@ -22,8 +22,14 @@ git_add_commit_push () {
 }
 
 git_pull () {
-	start_or_install_keychain &&
-	git pull;
+	start_or_install_keychain;
+	
+	if [[ $1 == "merge" ]]; then
+		git pull;
+		return;
+	fi
+
+	git pull --rebase;
 }
 
 git_clone () {
