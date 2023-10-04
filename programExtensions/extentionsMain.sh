@@ -11,6 +11,7 @@ load_extentions () {
         "terraform" \
         "yarn" \
         "python" \
+        "bun" \
     )
 
     for i in "${program_extentions[@]}"

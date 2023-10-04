@@ -100,6 +100,7 @@ determine_install_script_to_use () {
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "nvm" &&
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "pnpm" &&
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "yarn" &&
+                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "bun" &&
 
                 run_install_script "$JAVA_INSTALL_LOCATION" &&
 				run_install_script "$AZURE_INSTALL_LOCATION" &&

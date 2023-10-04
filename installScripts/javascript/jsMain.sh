@@ -12,7 +12,8 @@ JSMAIN_LOCATION=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && p
 NVM_INSTALL_LOCATION=$JSMAIN_LOCATION/nvm/installNvm.sh;
 PNPM_INSTALL_LOCATION=$JSMAIN_LOCATION/pnpm/installPnpm.sh;
 YARN_INSTALL_LOCATION=$JSMAIN_LOCATION/yarn/installYarn.sh;
-options=("nvm" "pnpm" "yarn");
+BUN_INSTALL_LOCATION=$JSMAIN_LOCATION/bun/installBun.sh;
+options=("nvm" "pnpm" "yarn" "bun");
 
 determine_install_script_to_use () {
 	case "$1" in
@@ -22,6 +23,8 @@ determine_install_script_to_use () {
 			run_js_install_script $PNPM_INSTALL_LOCATION;;
 		"${options[2]}" | "3")
 			run_js_install_script $YARN_INSTALL_LOCATION;;
+		"${options[3]}" | "4")
+			run_js_install_script $BUN_INSTALL_LOCATION;;
 		"all")
 			run_js_install_script $NVM_INSTALL_LOCATION;
 			run_js_install_script $PNPM_INSTALL_LOCATION;
