@@ -2,7 +2,6 @@
 
 ## General utility
 restart_shell () {
-	clear;
 	if  [[ $PROFILE_SHELL == zsh ]]; then
 		exec zsh -l;
 	elif [[ $PROFILE_SHELL == bash ]]; then
