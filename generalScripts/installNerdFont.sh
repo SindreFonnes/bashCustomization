@@ -28,7 +28,7 @@ install_for_other () {
 	wget https://github.com/ryanoasis/nerd-fonts/releases/download/v2.3.3/$FONT_ZIP_NAME \
 	 -P $FONT_LOCATION;
 
-	local FONT_ZIP_PATH;
+	local FONT_ZIP_PATH="${FONT_LOCATION}/${FONT_ZIP_NAME}";
 	
 	unzip $FONT_ZIP_PATH -d $FONT_LOCATION;
 
