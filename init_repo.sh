@@ -39,7 +39,7 @@ chmod +x $bashC/generalScripts/installStuff.sh;
 $bashC/generalScripts/installStuff.sh;
 
 # Run all the install scripts
-source $bashC/installScripts/installMain.sh;
-use_install_script all;
+## source $bashC/installScripts/installMain.sh;
+## run_my_install all;
 
 echo "Added the customization to bashrc, use the command \"source ~/.bashrc\" to reload the shell and load the customizations";
