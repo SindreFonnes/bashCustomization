@@ -55,3 +55,7 @@ fi
 if [ -d $HOME/.mybin ]; then
 	export PATH=$PATH:$HOME/.mybin;
 fi
+
+## https://askubuntu.com/questions/22037/aliases-not-available-when-using-sudo
+## Making sudo work with other aliases
+alias sudo="sudo ";
