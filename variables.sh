@@ -10,7 +10,7 @@ handle_wsl () {
 	if [[ "$system_info" == *"wsl"* ]]; then
 		win_main_drive_path="/mnt/c";
 
-		p_win_home="$win_main_drive_path/p-win";
+		p_win_home="$win_main_drive_path/p";
 	fi
 }
 
