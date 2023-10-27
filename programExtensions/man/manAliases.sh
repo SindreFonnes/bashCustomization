@@ -1,0 +1,1 @@
+alias vman="open_man_in_vscode"

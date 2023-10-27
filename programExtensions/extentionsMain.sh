@@ -12,6 +12,7 @@ load_extentions () {
         "yarn" \
         "python" \
         "bun" \
+        "man" \
     )
 
     for i in "${program_extentions[@]}"
