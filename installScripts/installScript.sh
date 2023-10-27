@@ -34,6 +34,7 @@ determine_install_script_to_use () {
         local NEOVIM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/neovim/installNeovim.sh;
         local POSTGRES_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/postgres/installPostgres.sh;
 		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
+        local OBSIDIAN_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/obsidian/installObsidian.sh;
 
         local input=($@);
 
@@ -88,6 +89,10 @@ determine_install_script_to_use () {
                 ;;
 
             "${input[15]}" | "14")
+                run_install_script "$OBSIDIAN_INSTALL_LOCATION"
+                ;;
+
+            "${input[16]}" | "15")
                 echo "Running all scripts sequentialy..." &&
                 run_install_script "$GO_INSTALL_LOCATION" &&
 
@@ -107,9 +112,9 @@ determine_install_script_to_use () {
 				run_install_script "$GITHUB_INSTALL_LOCATION" &&
 				run_install_script "$TERRAFORM_INSTALL_LOCATION" &&
 				run_install_script "$BREW_INSTALL_LOCATION" &&
-				run_install_script "$DOCKER_INSTALL_LOCATION" &&
-                run_install_script "$POSTGRES_INSTALL_LOCATION" &&
+				run_install_script "$DOCKER_INSTALL_LOCATION" &&                
                 run_install_script "$KUBECTL_INSTALL_LOCATION" &&
+                run_install_script "$OBSIDIAN_INSTALL_LOCATION" &&
                 echo "Installed everything (except postgres)";
                 ;;
             *)
@@ -121,7 +126,7 @@ determine_install_script_to_use () {
 }
 
 use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "all")
+    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "obsidian" "all")
 
     if [[ $# -ne 0 ]]; then
         if [[ $# > 1 ]]; then
