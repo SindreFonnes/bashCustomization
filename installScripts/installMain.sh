@@ -13,4 +13,6 @@ run_my_install () {
     $MYINSTALL_SCRIPT_LOCATION $1 $2;
 }
 
-export -f run_my_install;
+if [[ $PROFILE_SHELL != "zsh" ]]; then
+    export -f run_my_install;
+fi
