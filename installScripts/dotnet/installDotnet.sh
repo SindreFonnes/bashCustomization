@@ -29,18 +29,20 @@ check_param_for_string () {
 OS_RELEASE=$(cat /etc/os-release)
 
 install_for_ubuntu () {
-    HTML_FRIENDLY=$(echo $INSTALL_DISTRO | tr '[:upper:]' '[:lower:]');
+    #HTML_FRIENDLY=$(echo $INSTALL_DISTRO | tr '[:upper:]' '[:lower:]');
 
-    wget https://packages.microsoft.com/config/$HTML_FRIENDLY/$INSTALL_DISTRO_VERSION/packages-microsoft-prod.deb -O packages-microsoft-prod.deb;
-    sudo dpkg -i packages-microsoft-prod.deb;
-    rm packages-microsoft-prod.deb;
+    #wget https://packages.microsoft.com/config/$HTML_FRIENDLY/$INSTALL_DISTRO_VERSION/packages-microsoft-prod.deb -O packages-microsoft-prod.deb;
+    #sudo dpkg -i packages-microsoft-prod.deb;
+    #rm packages-microsoft-prod.deb;
 
     # Install ASP.NET Core runtime
     sudo apt-get update; \
     sudo apt-get install apt-transport-https -y && \
     sudo apt-get update && \
-    sudo apt-get install dotnet-sdk-7.0 -y;
-    
+  	sudo apt-get install -y dotnet-sdk-8.0 && \
+	sudo apt-get update && \
+  	sudo apt-get install -y aspnetcore-runtime-8.0
+
     script_success_message "$name";
     exit 0;
 }
