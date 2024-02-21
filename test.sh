@@ -2,12 +2,39 @@
 
 set -eo pipefail;
 
-if ! command -v gh &> /dev/null; then
-	echo "you need gh installed";
-else
-	echo "you have gh installed";
-fi
+TEMP=$(getopt -o h -l filename:,verbose -- "$@")
 
+echo ${TEMP[@]}
+
+exit 0;
+
+while getopt ":h-:" opt; do
+  case $opt in
+    h)
+      echo "Usage: my_script.sh [--filename filename] [--verbose]"
+      exit 0
+      ;;
+    filename)
+      filename=$OPTARG
+      ;;
+    verbose)
+      verbose=1
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+      ;;
+  esac
+done
+
+echo "Filename: $filename"
+echo "Verbose mode: $verbose" 
+
+exit 0;
 
 sek=60
 echo "$sek Seconds Wait!"
