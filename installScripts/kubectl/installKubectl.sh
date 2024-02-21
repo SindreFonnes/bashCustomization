@@ -21,6 +21,25 @@ install_for_mac () {
 install_for_linux () {
 	curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl";
 	curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256";
+	CHECK_RESULT=$(echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check)
+
+	if [[ $CHECK_RESULT == *"OK"* ]]; then
+		echo "Checksum OK";
+		
+		sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl;
+
+		rm ./kubectl;
+		rm ./kubectl.sha256;
+
+		script_success_message "$name";
+		exit 0;
+	else
+		echo "Checksum NOT OK";
+		rm ./kubectl;
+		rm ./kubectl.sha256;
+		exit 1;
+	fi
+
 	script_success_message ""
 }
 
