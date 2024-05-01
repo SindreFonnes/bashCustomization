@@ -52,6 +52,8 @@ alias goback="popd_wrapper";
 alias gob="goback";
 alias cdh="dirs -l -v";
 
+alias externalIp="curl ipecho.net/plain";
+
 # Windows only aliases
 if [[ $IS_WSL == true ]]; then
     alias p-win="cdd $p_win_home";
