@@ -27,8 +27,42 @@ get-next-prod-tag() {
     awk -F '.' '{printf "%s.%d.%d-prod", $1, $2, $3}'
 }
 
+#release-stage() {
+#    gh release create $(get-next-stage-tag) -n ""
+#    git fetch
+#}
+
 release-stage() {
-    gh release create $(get-next-stage-tag) -n ""
+    increment_type="patch" # Default to patch releases
+
+    # Process flags
+    while [[ "$#" -gt 0 ]]; do 
+        case $1 in
+            --patch) increment_type="patch";;
+            --minor) increment_type="minor";;
+            --major) increment_type="major";;
+            *) echo "Unknown parameter: $1" >&2; exit 1;;
+        esac
+        shift
+    done
+
+    # Function to increment a version part 
+    increment_version_part() {
+        current_ver=$(get-latest-stage-tag-or-default)
+        awk -F '.' -v part=$1 -v type=$increment_type '
+            {
+                if (type == "patch") $3++
+                else if (type == "minor") { $2++; $3=0 } 
+                else if (type == "major") { $1++; $2=0; $3=0 }
+                sub(/^v/, "", $1) 
+                printf "v%s.%d.%d-stage\n", $1, $2, $3 # Prefix with "v"
+            }
+        ' <<< $current_ver
+    }
+
+    next_stage_tag=$(increment_version_part)
+    echo $next_stage_tag
+    gh release create $next_stage_tag -n ""
     git fetch
 }
 
