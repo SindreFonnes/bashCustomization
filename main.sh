@@ -19,7 +19,7 @@ determine_running_shell;
 load_shell_extentionfiles "false";
 
 # Fetch any new thing whenever the shell is started on tuesday or thursday
-check_for_shell_update_on_monday () {
+check_for_shell_update_once_a_day () {
     local current_date_nunber=$(date +%u);
     local path_to_shell_update="$bashC/.last_day_shell_update_checked";
 
@@ -38,6 +38,6 @@ check_for_shell_update_on_monday () {
     fi
 }
 
-check_for_shell_update_on_monday
+check_for_shell_update_once_a_day
 
 load_shell_extentionfiles "first_load";
