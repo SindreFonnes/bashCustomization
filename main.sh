@@ -18,7 +18,26 @@ determine_running_shell;
 ## Loading extending files
 load_shell_extentionfiles "false";
 
-# Fetch any new thing whenever the shell is started
-updateShell;
+# Fetch any new thing whenever the shell is started on tuesday or thursday
+check_for_shell_update_on_monday () {
+    local current_date_nunber=$(date +%u);
+    local path_to_shell_update="$bashC/.last_day_shell_update_checked";
+
+    if [[ ! -f $bashC/.last_day_shell_update_checked ]]; then
+        echo $current_date_nunber > $path_to_shell_update;
+        updateShell;
+        return 0;
+    fi
+
+    local last_day_shell_checked=$(cat $path_to_shell_update);
+
+    if [[ $current_date_nunber != $last_day_shell_checked ]]; then
+        echo $current_date_nunber > $path_to_shell_update;
+        updateShell;
+        return 0;
+    fi
+}
+
+check_for_shell_update_on_monday
 
 load_shell_extentionfiles "first_load";

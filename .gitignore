@@ -2,3 +2,4 @@
 target
 local/*
 !local/local_main.sh
+.last_day_shell_update_checked
