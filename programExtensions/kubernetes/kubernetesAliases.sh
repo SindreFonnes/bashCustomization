@@ -1,2 +1,3 @@
 alias kar="kubernetes_apply_recursive";
-alias k="kubectl";
+alias unsetA="unsetAzureEnvVars";
+alias k="unsetA && kubectl";
