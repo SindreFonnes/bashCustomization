@@ -2,6 +2,24 @@
 
 set -eo pipefail;
 
+PATH_TO_SCRIPT="/home/sindre/bashCustomization/test2.sh";
+
+scp $PATH_TO_SCRIPT root@10.0.0.28:/root/testScript.sh;
+
+ssh root@10.0.0.28 << EOF
+  sh /root/testScript.sh;
+EOF
+
+sleep 5;
+
+scp root@10.0.0.28:/root/test ./testResult;
+
+cat ./testResult;
+
+exit 0;
+
+
+
 TEMP=$(getopt -o h -l filename:,verbose -- "$@")
 
 echo ${TEMP[@]}
