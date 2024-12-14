@@ -21,6 +21,7 @@ script_names=( \
 	"configureGit" \
 	"fix_docker_insuficient_permissions_wsl" \
 	"generateSSLCert" \
+	"updateDiscord" \
 )
 
 case "${input}" in
@@ -47,6 +48,9 @@ case "${input}" in
 		;;
 	"${script_names[7]}")
 		run_install_script "${GENERAL_SCRIPTS_FOLDER_LOCATION}/${script_names[7]}.sh"
+		;;
+	"${script_names[8]}")
+		run_install_script "${GENERAL_SCRIPTS_FOLDER_LOCATION}/${script_names[8]}.sh"
 		;;
 	"help")
 		echo "Here are all the script options";
