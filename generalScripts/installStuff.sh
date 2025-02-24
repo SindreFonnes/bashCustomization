@@ -1,6 +1,26 @@
 #!/bin/bash
 set -eo pipefail;
 
+if [[ $bashC != "" ]]; then
+    export MYINSTALL_SCRIPT_FOLDER_LOCATION=$bashC/installScripts;
+else
+    export MYINSTALL_SCRIPT_FOLDER_LOCATION="$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd )/../installScripts";
+fi
+
+source $MYINSTALL_SCRIPT_FOLDER_LOCATION/commonMyinstallFunctions.sh;
+
+if is_mac_os; then
+	brew update && brew upgrade;
+	brew install \
+		bat \
+		ripgrep \
+		git \
+		keychain \
+		gnupg
+		
+	exit 0;
+fi
+
 sudo apt update;
 
 sudo apt upgrade -y;

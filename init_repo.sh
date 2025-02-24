@@ -29,11 +29,6 @@ mkdir $p_home/go;
 mkdir $p_home/dotnet;
 mkdir $p_home/notes;
 
-if [[ "$OSTYPE" == *"darwin"* ]]; then
-	echo "Update install scripts to support mac you lazy bum. Exiting init script...";
-	exit 0;
-fi
-
 # Install various packages
 chmod +x $bashC/generalScripts/installStuff.sh;
 $bashC/generalScripts/installStuff.sh;
