@@ -13,7 +13,7 @@ fi
 
 install_for_mac () {
 	brew update &&
-	brew cask install docker &&
+	brew install docker &&
 	script_success_message "$name";
 	exit 0;
 }
