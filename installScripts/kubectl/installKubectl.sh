@@ -13,7 +13,9 @@ fi
 
 install_for_mac () {
 	brew update &&
-	brew install kubernetes-cli &&
+	brew install \
+		kubernetes-cli \
+		kubectx &&
 	script_success_message "$name";
 	exit 0;
 }
