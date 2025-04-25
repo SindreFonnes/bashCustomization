@@ -1,15 +1,26 @@
 # --== Some colors ==-- #
 
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+DIM_GRAY='\033[0;90m'
 NC='\033[0m'
 
-# --== Releasing repositories to stage/prod environments ==-- #
+# --== Utility functions ==-- #
 
 get-latest-stage-tag() {
-    git fetch
+    get-latest-tag "\-stage"
+}
+
+get-latest-prod-tag() {
+    get-latest-tag "\-prod"
+}
+
+get-latest-tag() {
+    git fetch --quiet
     git tag --sort=-version:refname |\
     head -n 50 |\
-    grep "\-stage" |\
+    grep $1 |\
     head -n 1
 }
 
@@ -27,55 +38,198 @@ get-next-prod-tag() {
     awk -F '.' '{printf "%s.%d.%d-prod", $1, $2, $3}'
 }
 
-#release-stage() {
-#    gh release create $(get-next-stage-tag) -n ""
-#    git fetch
-#}
+get-git-commit-sha-by-tag() {
+    git rev-list -n 1 tags/$1
+}
+
+# --== Releasing repositories to stage/prod environments ==-- #
 
 release-stage() {
-    increment_type="patch" # Default to patch releases
+    diff-tag-full stage
+    release-continue-prompt || return
+    release-stage-force
+}
 
-    # Process flags
-    while [[ "$#" -gt 0 ]]; do 
-        case $1 in
-            --patch) increment_type="patch";;
-            --minor) increment_type="minor";;
-            --major) increment_type="major";;
-            *) echo "Unknown parameter: $1" >&2; exit 1;;
-        esac
-        shift
-    done
-
-    # Function to increment a version part 
-    increment_version_part() {
-        current_ver=$(get-latest-stage-tag-or-default)
-        awk -F '.' -v part=$1 -v type=$increment_type '
-            {
-                if (type == "patch") $3++
-                else if (type == "minor") { $2++; $3=0 } 
-                else if (type == "major") { $1++; $2=0; $3=0 }
-                sub(/^v/, "", $1) 
-                printf "v%s.%d.%d-stage\n", $1, $2, $3 # Prefix with "v"
-            }
-        ' <<< $current_ver
-    }
-
-    next_stage_tag=$(increment_version_part)
-    echo $next_stage_tag
-    gh release create $next_stage_tag -n ""
-    git fetch
+release-stage-force() {
+    gh release create $(get-next-stage-tag) -n ""
+    git fetch --quiet
 }
 
 release-prod() {
-  LATEST_STAGE_TAG=$(get-latest-stage-tag-or-default)
-  LATEST_PROD_TAG=$(echo $LATEST_STAGE_TAG | awk -F '.' '{printf "%s.%d.%d-prod", $1, $2, $3}')
-  STAGE_TAG_SHA=$(git rev-list -n 1 tags/$LATEST_STAGE_TAG)  
-  gh release create $LATEST_PROD_TAG --target $STAGE_TAG_SHA -n ""
+    diff-tag-full prod stage
+    release-continue-prompt || return
+    release-prod-force
+}
+
+release-prod-force() {
+    LATEST_STAGE_TAG=$(get-latest-stage-tag-or-default)
+    LATEST_PROD_TAG=$(echo $LATEST_STAGE_TAG | awk -F '.' '{printf "%s.%d.%d-prod", $1, $2, $3}')
+    STAGE_TAG_SHA=$(get-git-commit-sha-by-tag $LATEST_STAGE_TAG)
+    gh release create $LATEST_PROD_TAG --target $STAGE_TAG_SHA -n ""
+    git fetch --quiet
 }
 
 release-all() {
-    release-stage
-    release-prod
+    diff-tag-full prod
+    release-continue-prompt || return
+    release-all-force
+}
+
+release-all-force() {    
+    release-stage-force
+    release-prod-force
+}
+
+release-continue-prompt() {
+    echo -e "Do you wish to continue? [yes]"
+    read -r answer
+    if [[ $answer != "yes" ]]; then
+        echo "Aborting release"
+        return 1
+    fi
+}
+
+# --== Diff to show unreleased items ==-- #
+
+diff-tag() {
+
+    local from=$1
+    local to=${2:-origin/main}
+
+    if [[ $from == "prod" || $from == "" ]]; then
+        from=$(get-latest-prod-tag)
+    elif [[ $from == "stage" ]]; then
+        from=$(get-latest-stage-tag)
+    fi
+
+    if [[ $to == "stage" ]]; then
+        to=$(get-latest-stage-tag)
+    fi
+
+    echo "$from..$to"
+    git --no-pager log $from..$to --pretty=tformat:"%s"
+}
+
+diff-tag-full() {
+    #!/usr/bin/env bash
+    local JIRA_CASES_PATTERN="^([A-Z]+-[0-9]+)\."
+    local jira_cases_in_commits=()
+    local all_commits=()
+
+    # Read all commits and parse jira cases
+    local GIT_COMMITS_DIFF_WITH_HEADER=$(diff-tag $1 $2)
+    local GIT_COMMITS_DIFF_HEADER=$(echo "$GIT_COMMITS_DIFF_WITH_HEADER" | head -n 1)
+    local GIT_COMMITS_DIFF=$(echo "$GIT_COMMITS_DIFF_WITH_HEADER" | tail -n +2)
+
+    while IFS= read -r line; do
+        if [[ $line == "" ]]; then
+            continue
+        fi
+        
+        if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
+
+            key="${BASH_REMATCH[1]}"
+            if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
+                key=$match[1]
+            fi
+            
+            local item_exists=false
+            for jira_case in "${jira_cases_in_commits[@]}"; do
+                if [[ $jira_case == $key ]]; then
+                    item_exists=true
+                    break;
+                fi
+            done
+
+            if [[ $item_exists == "false" ]]; then
+                jira_cases_in_commits+=("$key")
+            fi
+        fi
+
+        all_commits+=("$line")
+
+    done <<< "${GIT_COMMITS_DIFF}"
+
+    # Output all commits and highlight the ones with JIRA cases
+    if [[ ${#all_commits[@]} == 0 ]]; then
+        echo -e "\n${GREEN}No commits found (${GIT_COMMITS_DIFF_HEADER}).${NC}\n"
+        return
+    fi
+
+    if hash jira 2>/dev/null; then
+        JIRA_INSTALLED=true
+    else
+        JIRA_INSTALLED=false
+    fi
+
+    # Query JIRA for the cases
+    if [[ "$JIRA_INSTALLED" == "true" && ${#jira_cases_in_commits[@]} > 0 ]]; then
+        JIRA_CASES_STRING=""
+        for key in "${jira_cases_in_commits[@]}"; do
+            if [[ $JIRA_CASES_STRING ]]; then
+                JIRA_CASES_STRING+=", "
+            fi
+            JIRA_CASES_STRING+="$key"
+        done
+
+        local found_jira_cases=$(jira issue list -q "project IS NOT EMPTY AND issuekey IN ($JIRA_CASES_STRING)" --plain)        
+        
+        # Get the keys from the JIRA cases
+        local found_jira_keys=()
+        for key in $(printf '%s\n' "$found_jira_cases" | tail -n +2 | awk '{print $2}'); do
+            found_jira_keys+=("$key")
+        done
+
+    else
+        local found_jira_cases=""
+    fi        
+
+    # Output all commits and highlight the ones with JIRA cases
+    echo -e "\n${GREEN}Commits (${GIT_COMMITS_DIFF_HEADER}):${NC}"
+    for line in "${all_commits[@]}"; do
+        matched=false
+        for key in "${found_jira_keys[@]}"; do
+            if [[ "$line" == *"$key"* ]]; then
+                matched=true
+            break
+            fi
+        done
+
+        if [[ $matched == "true" ]]; then
+            echo -e "${DIM_GRAY}$line${NC}"
+        else
+            echo -e "${YELLOW}$line${NC}"
+        fi
+    done
+
+    # Output the JIRA cases if they exist
+    if [[ $found_jira_cases ]]; then
+        echo -e "\n${GREEN}Found JIRA cases:${NC}"
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^TYPE[[:space:]]+KEY ]]; then
+                echo "$line"
+                continue
+            fi
+
+            READY_FOR_PRODUCTION_PATTERN="(Ready[[:space:]]for[[:space:]]prod|Ready[[:space:]]for[[:space:]]production)$"
+
+            # If the status is NOT one of the two “ready for prod” variants...
+            if [[ ! "$line" =~ $READY_FOR_PRODUCTION_PATTERN ]]; then
+                # …print it in yellow
+                echo -e "${YELLOW}${line}${NC}"
+            else
+                echo -e "${DIM_GRAY}${line}${NC}"
+            fi
+        done <<< $found_jira_cases
+    else
+        if [[ "$JIRA_INSTALLED" == "true" ]]; then
+            echo -e "\n${GREEN}No JIRA cases found.${NC}"
+        else
+            echo -e "\n${YELLOW}Please install jira-cli to get more information about the JIRA cases. Follow installation and initialization instructions here: https://github.com/ankitpokhrel/jira-cli${NC}"
+        fi            
+    fi    
+
+    echo
 }
 
 # --== Approving/rejecting issues for manual approval ==-- #
@@ -205,6 +359,7 @@ alias release-rerun-dev='release-rerun "main"'
 alias release-rerun-stage='release-rerun "-stage"'
 alias release-rerun-prod='release-rerun "-prod"'
 
+alias release-diff='diff-tag-full'
 
 # TODO - Seems logs are unavailable during run unfortunately, it should hopefully be fixed some time soon
 # some of the issues maybe fixed soon, see https://github.com/actions/runner/issues/886#issuecomment-1669631425, there is some big rewrite of logging stuff
