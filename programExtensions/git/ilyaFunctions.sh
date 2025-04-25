@@ -112,7 +112,9 @@ diff-tag() {
 
 diff-tag-full() {
     #!/usr/bin/env bash
-    local JIRA_CASES_PATTERN="^([A-Z]+-[0-9]+)\."
+    local JIRA_CASES_PATTERN_PREFIX="^("
+    local JIRA_CASES_PATTERN_SUFFIX=")\."
+    local JIRA_CASES_PATTERN="${JIRA_CASES_PATTERN_PREFIX}([A-Z]+-[0-9]+)${JIRA_CASES_PATTERN_SUFFIX}"
     local jira_cases_in_commits=()
     local all_commits=()
 
@@ -127,7 +129,6 @@ diff-tag-full() {
         fi
         
         if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
-
             key="${BASH_REMATCH[1]}"
             if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
                 key=$match[1]
@@ -189,9 +190,10 @@ diff-tag-full() {
     for line in "${all_commits[@]}"; do
         matched=false
         for key in "${found_jira_keys[@]}"; do
-            if [[ "$line" == *"$key"* ]]; then
+            local JIRA_CASE_PATTERN="${JIRA_CASES_PATTERN_PREFIX}$key${JIRA_CASES_PATTERN_SUFFIX}"
+            if [[ $line =~ $JIRA_CASE_PATTERN ]]; then
                 matched=true
-            break
+                break
             fi
         done
 
