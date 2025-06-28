@@ -59,3 +59,5 @@ if [[ $IS_WSL == true ]]; then
     alias p-win="cdd $p_win_home";
     alias windows="cdd $win_main_drive_path";
 fi
+
+alias cb="output_to_clipboad";

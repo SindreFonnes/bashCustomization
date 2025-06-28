@@ -126,3 +126,56 @@ get_all_files_bellow_directory () {
 		echo $entry;
 	done
 }
+
+# This function automatically detects the operating system and display server
+# to use the correct command for copying piped input to the system clipboard.
+# It supports macOS, Windows Subsystem for Linux (WSL), and Linux with
+# either X11 or Wayland.
+#
+# Usage:
+#   echo "Hello, clipboard!" | pb
+#   cat my_file.txt | pb
+#   ls -la | pb
+output_to_clipboad() {
+    # Check if running on macOS
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # On macOS, pbcopy is the standard command to copy to the clipboard.
+        pbcopy
+    # Check if running on WSL (Windows Subsystem for Linux)
+    elif grep -qE "(Microsoft|WSL)" /proc/version &> /dev/null; then
+        # On WSL, we can interface with the Windows clipboard via clip.exe.
+        clip.exe
+    # Check if running on Linux
+    elif [[ "$(uname)" == "Linux" ]]; then
+        # On Linux, the clipboard utility depends on the display server.
+        # We check for Wayland first. The $WAYLAND_DISPLAY variable is a reliable indicator.
+        if [[ -n "$WAYLAND_DISPLAY" ]]; then
+            # On Wayland, wl-copy is the standard.
+            # Check if wl-copy is installed.
+            if command -v wl-copy &> /dev/null; then
+                wl-copy
+            else
+                echo "Error: wl-copy is not installed. Please install it to use the clipboard on Wayland." >&2
+                return 1
+            fi
+        # If not Wayland, we assume X11 (X.Org).
+        # The $DISPLAY variable is a reliable indicator for an X session.
+        elif [[ -n "$DISPLAY" ]]; then
+            # On X11, xclip is a common tool.
+            # Check if xclip is installed.
+            if command -v xclip &> /dev/null; then
+                xclip -selection clipboard
+            else
+                echo "Error: xclip is not installed. Please install it to use the clipboard on X11." >&2
+                return 1
+            fi
+        else
+            echo "Error: Could not determine display server (Wayland or X11)." >&2
+            echo "Cannot copy to clipboard." >&2
+            return 1
+        fi
+    else
+        echo "Error: Unsupported operating system." >&2
+        return 1
+    fi
+}
