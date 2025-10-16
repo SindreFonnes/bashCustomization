@@ -21,6 +21,20 @@ git_add_commit_push () {
 	git push;
 }
 
+git_add_commit_publish () {
+	local inputs=($@);
+	local branch_name=$(git branch --show-current);
+	
+	if [[ -z "$branch_name" ]]; then
+		echo "Could not determine current branch name";
+		return 1;
+	fi
+	
+	start_or_install_keychain &&
+	git_add_commit ${inputs[@]} &&
+	git push --set-upstream origin "$branch_name";
+}
+
 git_pull () {
 	start_or_install_keychain;
 	

@@ -1,5 +1,6 @@
 ### General;
 alias gacp="git_add_commit_push";
+alias gacpub="git_add_commit_publish";
 alias gac="git_add_commit";
 alias gcm="git_commit";
 alias gaa="git add -A";
