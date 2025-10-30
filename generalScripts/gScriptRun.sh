@@ -19,6 +19,7 @@ script_names=( \
 	"setupZsh" \
 	"updateOs" \
 	"configureGit" \
+	"setupGpgSigning" \
 	"fix_docker_insuficient_permissions_wsl" \
 	"generateSSLCert" \
 	"updateDiscord" \
@@ -51,6 +52,9 @@ case "${input}" in
 		;;
 	"${script_names[8]}")
 		run_install_script "${GENERAL_SCRIPTS_FOLDER_LOCATION}/${script_names[8]}.sh"
+		;;
+	"${script_names[9]}")
+		run_install_script "${GENERAL_SCRIPTS_FOLDER_LOCATION}/${script_names[9]}.sh"
 		;;
 	"help")
 		echo "Here are all the script options";

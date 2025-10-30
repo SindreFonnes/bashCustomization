@@ -60,12 +60,43 @@ script_check_if_allready_installed () {
     return 0;
 }
 
+# Ensures brew is installed on macOS and returns the brew prefix
+# Usage: BREW_PREFIX=$(ensure_brew_installed)
+ensure_brew_installed () {
+    if [[ "$OSTYPE" != *"darwin"* ]]; then
+        echo "ERROR: ensure_brew_installed() should only be called on macOS" >&2
+        return 1;
+    fi
+    
+    local BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
+    
+    if [[ -z "${BREW_PREFIX}" ]]; then
+        echo "Homebrew not found. Installing Homebrew..." >&2
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        
+        # Evaluate shellenv to make brew available in current session
+        if [[ -x /opt/homebrew/bin/brew ]]; then
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+        elif [[ -x /usr/local/bin/brew ]]; then
+            eval "$(/usr/local/bin/brew shellenv)"
+        fi
+        
+        BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
+        
+        if [[ -z "${BREW_PREFIX}" ]]; then
+            echo "ERROR: Failed to install or locate Homebrew" >&2
+            return 1;
+        fi
+    fi
+    
+    echo "${BREW_PREFIX}"
+    return 0;
+}
+
 is_mac_os () {
     if [[ "$OSTYPE" == *"darwin"* ]]; then
-    	if ! command -v brew &> /dev/null; then
-		    run_my_install "brew";
-	    fi
-        
+        # Ensure brew is installed but don't need the prefix
+        ensure_brew_installed >/dev/null
         return 0;
     fi
     
@@ -84,11 +115,37 @@ is_wsl_os () {
     return 1;
 }
 
+is_linux_os () {
+    if [[ "$OSTYPE" == *"darwin"* ]]; then
+        return 1;
+    fi
+    
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        return 0;
+    fi
+    
+    return 1;
+}
+
 apt_package_manager_available () {
     if command -v apt &> /dev/null; then
         return 0;
     fi
 
+    return 1;
+}
+
+# Detects if system is Ubuntu/Debian-based
+is_ubuntu_debian () {
+    if [[ ! -f /etc/os-release ]]; then
+        return 1;
+    fi
+    
+    . /etc/os-release
+    if [[ "$ID" == "ubuntu" ]] || [[ "$ID_LIKE" == *"debian"* ]] || [[ "$ID" == "debian" ]]; then
+        return 0;
+    fi
+    
     return 1;
 }
 
