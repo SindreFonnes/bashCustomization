@@ -16,6 +16,14 @@ if is_mac_os; then
     exit 1;
 fi
 
+install_for_pacman () {
+    sudo pacman -Syu --noconfirm;
+    sudo pacman -S --needed --noconfirm dotnet-sdk aspnet-runtime;
+    
+    script_success_message "$name";
+    exit 0;
+}
+
 INSTALL_DISTRO="Ubuntu";
 INSTALL_DISTRO_VERSION="22.04";
 
@@ -44,6 +52,10 @@ install_for_ubuntu () {
     script_success_message "$name";
     exit 0;
 }
+
+if pacman_package_manager_available; then
+    install_for_pacman;
+fi
 
 if check_param_for_string "$OS_RELEASE" "$INSTALL_DISTRO $INSTALL_DISTRO_VERSION"; then
     install_for_ubuntu;

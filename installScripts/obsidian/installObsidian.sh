@@ -19,7 +19,7 @@ install_for_mac () {
 	exit 0;
 }
 
-install_for_linux () {
+install_for_apt () {
 	local NEWEST_VERSION=$(\
 		curl -sl "https://github.com/obsidianmd/obsidian-releases/releases" | \
 		grep -m 1 "a href=\"\/obsidianmd\/obsidian-releases\/releases\/tag\/"  | \
@@ -37,17 +37,34 @@ install_for_linux () {
 	rm ~/obsidian_${NEWEST_VERSION}_amd64.deb;
 
 	script_success_message "$name";
+	exit 0;
+}
+
+install_for_pacman () {
+	# Obsidian is available in AUR
+	local aur_helper=$(ensure_aur_helper_installed);
+	
+	if [[ $? -ne 0 ]]; then
+		echo "Failed to install AUR helper. Cannot proceed.";
+		exit 1;
+	fi
+	
+	$aur_helper -S --needed --noconfirm obsidian;
+	
+	script_success_message "$name";
+	exit 0;
 }
 
 if is_mac_os; then
-	brew update &&
-	brew install --cask obsidian &&
-	script_success_message "$name";
-	exit 0;
+	install_for_mac;
 fi
 
-if [[ $OSTYPE == *"linux"* ]]; then
-	install_for_linux;
+if apt_package_manager_available; then
+	install_for_apt;
+fi
+
+if pacman_package_manager_available; then
+	install_for_pacman;
 fi
 
 script_does_not_support_os "$name";

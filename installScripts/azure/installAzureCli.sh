@@ -26,12 +26,31 @@ install_for_apt () {
 	exit 0;
 }
 
+install_for_pacman () {
+	# Azure CLI is available in AUR
+	local aur_helper=$(ensure_aur_helper_installed);
+	
+	if [[ $? -ne 0 ]]; then
+		echo "Failed to install AUR helper. Cannot proceed.";
+		exit 1;
+	fi
+	
+	$aur_helper -S --needed --noconfirm azure-cli;
+	
+	script_success_message "$name";
+	exit 0;
+}
+
 if is_mac_os; then
 	install_for_mac;
 fi
 
 if apt_package_manager_available; then
 	install_for_apt;
+fi
+
+if pacman_package_manager_available; then
+	install_for_pacman;
 fi
 
 script_does_not_support_os "$name";

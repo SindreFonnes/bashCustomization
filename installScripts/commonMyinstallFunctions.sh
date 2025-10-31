@@ -149,6 +149,73 @@ is_ubuntu_debian () {
     return 1;
 }
 
+# Detects if pacman package manager is available (Arch-based systems)
+pacman_package_manager_available () {
+    if command -v pacman &> /dev/null; then
+        return 0;
+    fi
+
+    return 1;
+}
+
+# Detects if system is Arch-based (Arch, Manjaro, EndeavourOS, etc.)
+is_arch_based () {
+    if [[ ! -f /etc/os-release ]]; then
+        return 1;
+    fi
+    
+    . /etc/os-release
+    if [[ "$ID" == "arch" ]] || [[ "$ID_LIKE" == *"arch"* ]] || [[ "$ID" == "manjaro" ]] || [[ "$ID" == "endeavouros" ]] || [[ "$ID" == "garuda" ]]; then
+        return 0;
+    fi
+    
+    return 1;
+}
+
+# Ensures AUR helper (yay or paru) is installed on Arch-based systems
+# Returns the name of the available AUR helper
+ensure_aur_helper_installed () {
+    if ! is_arch_based; then
+        echo "ERROR: ensure_aur_helper_installed() should only be called on Arch-based systems" >&2
+        return 1;
+    fi
+    
+    # Check if yay is already installed
+    if command -v yay &> /dev/null; then
+        echo "yay"
+        return 0;
+    fi
+    
+    # Check if paru is already installed
+    if command -v paru &> /dev/null; then
+        echo "paru"
+        return 0;
+    fi
+    
+    # Install yay if neither is available
+    echo "Installing yay AUR helper..." >&2
+    
+    # Install base-devel and git if not present
+    sudo pacman -S --needed --noconfirm base-devel git
+    
+    # Clone and build yay
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    git clone https://aur.archlinux.org/yay.git
+    cd yay
+    makepkg -si --noconfirm
+    cd ~
+    rm -rf "$temp_dir"
+    
+    if command -v yay &> /dev/null; then
+        echo "yay"
+        return 0;
+    else
+        echo "ERROR: Failed to install AUR helper" >&2
+        return 1;
+    fi
+}
+
 run_my_install () {
     if ! script_check_args_exist ${@}; then
         return 1;

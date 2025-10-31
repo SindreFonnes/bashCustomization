@@ -27,12 +27,24 @@ install_for_apt () {
 	exit 0;
 }
 
+install_for_pacman () {
+	sudo pacman -Syu --noconfirm;
+	sudo pacman -S --needed --noconfirm jre-openjdk jdk-openjdk;
+	
+	script_success_message "$name";
+	exit 0;
+}
+
 if is_mac_os; then
 	install_for_mac;
 fi
 
 if apt_package_manager_available; then
 	install_for_apt;
+fi
+
+if pacman_package_manager_available; then
+	install_for_pacman;
 fi
 
 script_does_not_support_os "$name";

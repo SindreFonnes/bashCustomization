@@ -42,8 +42,20 @@ install_for_linux () {
 	exit 0;
 }
 
+install_for_pacman () {
+	sudo pacman -Syu --noconfirm;
+	sudo pacman -S --needed --noconfirm neovim;
+	
+	script_success_message "$name";
+	exit 0;
+}
+
 if is_mac_os; then
 	install_for_mac;
+fi
+
+if pacman_package_manager_available; then
+	install_for_pacman;
 fi
 
 install_for_linux;
