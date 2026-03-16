@@ -111,7 +111,6 @@ diff-tag() {
 }
 
 diff-tag-full() {
-    #!/usr/bin/env bash
     local JIRA_CASES_PATTERN_PREFIX="^("
     local JIRA_CASES_PATTERN_SUFFIX=")\."
     local JIRA_CASES_PATTERN="${JIRA_CASES_PATTERN_PREFIX}([A-Z]+-[0-9]+)${JIRA_CASES_PATTERN_SUFFIX}"

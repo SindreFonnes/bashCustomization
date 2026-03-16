@@ -55,7 +55,7 @@ alias cdh="dirs -l -v";
 alias externalIp="curl ipecho.net/plain";
 
 # Windows only aliases
-if [[ $IS_WSL == true ]]; then
+if [[ $IS_WSL == "true" ]]; then
     alias p-win="cdd $p_win_home";
     alias windows="cdd $win_main_drive_path";
 fi
