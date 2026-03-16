@@ -17,7 +17,7 @@
 - `local/` — machine-specific overrides (not committed)
 
 ## Conventions
-- Follow existing naming patterns: `camelCase` for functions, lowercase with underscores for variables
+- Follow existing naming patterns: `snake_case` for functions, lowercase with underscores for variables
 - New program extensions go in `programExtensions/<program>/` with their own sourcing structure
 - New install scripts go in `installScripts/<tool>/`
 - Keep scripts modular — one concern per file
