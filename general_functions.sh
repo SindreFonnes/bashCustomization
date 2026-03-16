@@ -44,13 +44,12 @@ determine_running_shell () {
 }
 
 load_shell_extentionfiles () {
-	source $bashC/general_functions.sh &&
-	source $bashC/variables.sh &&
-	source $bashC/shellFunctionality/shellMain.sh &&
-	source $bashC/standard_settings.sh &&
-	source $bashC/installScripts/installMain.sh &&
-	source $bashC/programExtensions/extentionsMain.sh &&
-	source $bashC/generalScripts/gScriptMain.sh &&
+	source "$bashC/variables.sh" &&
+	source "$bashC/shellFunctionality/shellMain.sh" &&
+	source "$bashC/standard_settings.sh" &&
+	source "$bashC/installScripts/installMain.sh" &&
+	source "$bashC/programExtensions/extentionsMain.sh" &&
+	source "$bashC/generalScripts/gScriptMain.sh" &&
 	source "$local_dir/local_main.sh" &&
 	if [[ $1 == "" ]]; then
 		echo "Done reloading files!";

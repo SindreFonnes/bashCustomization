@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source $GIT_EXTENTION_FOLDER_LOCATION/functions/gitCommonFunctions.sh;
+source "$GIT_EXTENTION_FOLDER_LOCATION/functions/gitCommonFunctions.sh";
 
 is_greater_than_current_version () {
 	local current_version=$(cat ./package.json | sed -n "/\"version\"/p" | tr -dc '[0-9.]');
@@ -103,7 +103,7 @@ git_add_commit_push_tag () {
 		version_number="${current_version_array[0]}.${current_version_array[1]}.${current_version_array[2]}";
 	fi
 
-	if [[ version_number == "" ]]; then
+	if [[ $version_number == "" ]]; then
 		version_number="$1";
 	fi
 

@@ -35,7 +35,7 @@ start_or_install_keychain () {
 		
 		if [[ $key_to_use == id_ed25519 || $key_to_use == id_rsa ]] && 
 		[[ "$keychain_agents" == "$no_key_agent" || "$keychain_agents" == "$error_connecting" || "$keychain_agents" == "$error_no_id" ]]; then
-			eval $(keychain --agents ssh --eval $key_to_use --clear);
+			eval "$(keychain --agents ssh --eval "$key_to_use" --clear)";
 		fi
 		return 0;
 	fi
@@ -63,15 +63,22 @@ update_packages () {
 
 # Takes the NAME, not the actual variable, of a variable as an argument and changes the string in the variable to be lowercase
 variable_to_lowercase () {
-	local -n variable_to_modify=$1;
-	variable_to_modify=$(echo "$variable_to_modify" | tr '[:upper:]' '[:lower:]');
-	return;
+	if [[ $PROFILE_SHELL == "bash" ]]; then
+		local -n variable_to_modify=$1;
+		variable_to_modify=$(echo "$variable_to_modify" | tr '[:upper:]' '[:lower:]');
+	else
+		# zsh does not support local -n (namerefs), use eval as a portable fallback
+		eval "$1=\"\$(echo \"\${$1}\" | tr '[:upper:]' '[:lower:]')\""
+	fi
 }
 
 variable_to_uppercase () {
-	local -n variable_to_modify=$1;
-	variable_to_modify=$(echo "$variable_to_modify" | tr '[:lower:]' '[:upper:]');
-	return;
+	if [[ $PROFILE_SHELL == "bash" ]]; then
+		local -n variable_to_modify=$1;
+		variable_to_modify=$(echo "$variable_to_modify" | tr '[:lower:]' '[:upper:]');
+	else
+		eval "$1=\"\$(echo \"\${$1}\" | tr '[:lower:]' '[:upper:]')\""
+	fi
 }
 
 pushd_wrapper () {
@@ -91,11 +98,11 @@ grep_specific_filetype_in_subfolders () {
 }
 
 find_entity_size () {
-	if [[ $? -eq 0 ]]; then
+	if [[ $# -eq 0 ]]; then
 		find_all_items_in_folder_size;
 		return;
 	fi
-	
+
 	du -sh "$1";
 }
 

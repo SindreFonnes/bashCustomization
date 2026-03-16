@@ -1,5 +1,5 @@
 # Behaviour
-if [[ $IS_MAC != "true" ]]; then
+if [[ $IS_MAC != "true" ]] && command -v safe-rm &> /dev/null; then
     alias rm="/usr/bin/safe-rm";
 fi
 alias c="clear";

@@ -26,15 +26,17 @@ alias ala="add_local_alias";
 alias listLocalA="cat $local_dir/local_aliases.sh";
 alias listLocalV="cat $local_dir/local_variables.sh";
 
-# Creating the local files if the do not allready exist
+# Creating the local files if they do not already exist (owner-only permissions)
 if ! [ -f "$local_dir/local_variables.sh" ]; then
     touch "$local_dir/local_variables.sh";
+    chmod 600 "$local_dir/local_variables.sh";
 fi
 
 . "$local_dir/local_variables.sh"
 
 if ! [ -f "$local_dir/local_aliases.sh" ]; then
     touch "$local_dir/local_aliases.sh";
+    chmod 600 "$local_dir/local_aliases.sh";
 fi
 
 . "$local_dir/local_aliases.sh"

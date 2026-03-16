@@ -164,7 +164,7 @@ diff-tag-full() {
     fi
 
     # Query JIRA for the cases
-    if [[ "$JIRA_INSTALLED" == "true" && ${#jira_cases_in_commits[@]} > 0 ]]; then
+    if [[ "$JIRA_INSTALLED" == "true" && ${#jira_cases_in_commits[@]} -gt 0 ]]; then
         JIRA_CASES_STRING=""
         for key in "${jira_cases_in_commits[@]}"; do
             if [[ $JIRA_CASES_STRING ]]; then
@@ -280,10 +280,6 @@ get-latest-workflow-run-job-url() {
 
 get-latest-workflow-run-job-tag() {
     gh run view $(get-latest-workflow-run ${1}) --json=headBranch --jq='.headBranch'
-}
-
-get-latest-workflow-run-job-log() {
-    gh run view --log --job=$(get-latest-workflow-run-job ${1})
 }
 
 get-latest-workflow-run-job-log() {
