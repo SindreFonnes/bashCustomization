@@ -4,4 +4,4 @@ else
     export NVIM_EXTENTION_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
 fi
 
-source $NVIM_EXTENTION_FOLDER_LOCATION/nvimAliases.sh;
+source "$NVIM_EXTENTION_FOLDER_LOCATION/nvimAliases.sh";

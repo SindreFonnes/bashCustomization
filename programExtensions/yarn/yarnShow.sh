@@ -1,3 +1,2 @@
 #!/bin/bash
-
-echo "Not yet implemented";
+"$(dirname "$0")/../showExtensionInfo.sh" "yarn" "$(dirname "$0")"
