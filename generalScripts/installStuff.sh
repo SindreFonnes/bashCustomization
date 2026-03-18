@@ -15,7 +15,6 @@ if is_mac_os; then
 		bat \
 		ripgrep \
 		git \
-		keychain \
 		gnupg
 		
 	exit 0;

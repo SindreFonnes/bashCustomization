@@ -11,6 +11,7 @@ echo "Running go install script...";
 
 ARCH="amd64" # system archicture
 
+# TODO(rust-migration): Replace with bashc semver compare
 is_greater_than_current_version () {
 	local current_version=$(go version | grep -o -a go[0-9]*.[0-9]*.[0-9] | tr -dc "[0-9].");
 	local current_version_array=($(echo $current_version | tr . " "))

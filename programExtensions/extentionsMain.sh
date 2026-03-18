@@ -20,7 +20,7 @@ load_extentions () {
 	do
 		source "$extentions_location/$i/${i}Main.sh";
         alias my${i}show="$extentions_location/$i/${i}Show.sh";
-        alias my${1}code="code $extentions_location/$i";
+        alias my${i}code="code $extentions_location/$i";
 	done
 }
 

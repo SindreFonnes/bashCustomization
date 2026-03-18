@@ -2,12 +2,6 @@
 
 set -eo pipefail;
 
-if ! [[ -f $bashC/gitCustomizations/.gitconfig ]]; then
-	echo "Can't find the config template file.";
-	echo "Exiting....";
-	exit 1;
-fi
-
 echo "What is your email?";
 read email;
 
@@ -40,21 +34,11 @@ if [[ $branch == "" ]]; then
 	branch="main";
 fi
 
-# \n = newline \t = horizontal tab
-config="[user]\n
-\temail = $email\n
-\tname = $name\n
-\n
-[pull]\n
-\trebase = $rebase\n
-\n
-[core]\n
-\teditor = $editor\n
-\n
-[init]\n
-\tdefaultBranch = $branch"
-
-echo -e $config > ~/.gitconfig;
+git config --global user.email "$email"
+git config --global user.name "$name"
+git config --global pull.rebase "$rebase"
+git config --global core.editor "$editor"
+git config --global init.defaultBranch "$branch"
 
 echo "Configured git";
 

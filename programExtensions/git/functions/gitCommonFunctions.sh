@@ -1,4 +1,4 @@
-source $SHELL_EXTENTION_FOLDER_LOCATION/shellFunctions.sh;
+source "$SHELL_EXTENTION_FOLDER_LOCATION/shellFunctions.sh";
 
 git_commit () {
 	local inputs=($@);
@@ -16,7 +16,7 @@ git_add_commit () {
 
 git_add_commit_push () {
 	local inputs=($@);
-	start_or_install_keychain &&
+	ensure_ssh_agent &&
 	git_add_commit ${inputs[@]} &&
 	git push;
 }
@@ -30,13 +30,13 @@ git_add_commit_publish () {
 		return 1;
 	fi
 	
-	start_or_install_keychain &&
+	ensure_ssh_agent &&
 	git_add_commit ${inputs[@]} &&
 	git push --set-upstream origin "$branch_name";
 }
 
 git_pull () {
-	start_or_install_keychain;
+	ensure_ssh_agent;
 	
 	if [[ $1 == "merge" ]]; then
 		git pull;
@@ -61,7 +61,7 @@ git_checkout_new_branch () {
 }
 
 git_push () {
-	start_or_install_keychain &&
+	ensure_ssh_agent &&
 	git push;
 }
 

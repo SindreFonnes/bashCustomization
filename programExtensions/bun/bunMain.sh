@@ -4,6 +4,6 @@ else
     export MY_BUN_EXTENTION_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
 fi
 
-source $MY_BUN_EXTENTION_FOLDER_LOCATION/bunAliases.sh;
+source "$MY_BUN_EXTENTION_FOLDER_LOCATION/bunAliases.sh";
 # Not yet needed
-# source $MY_BUN_EXTENTION_FOLDER_LOCATION/yarnFunctions.sh;
+# source $MY_BUN_EXTENTION_FOLDER_LOCATION/bunFunctions.sh;

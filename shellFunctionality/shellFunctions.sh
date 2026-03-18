@@ -19,36 +19,131 @@ execute_command_in_folder_and_go_back () {
 	echo "Done";
 }
 
-start_or_install_keychain () {
-	local no_key_agent="Could not open a connection to your authentication agent.";
-	local error_connecting="Error connecting to agent: No such file or directory";
-	local error_no_id="The agent has no identities."
-
-	if [[ -f ~/.ssh/id_ed25519 ]]; then
-		local key_to_use=id_ed25519;
-	elif [[ -f ~/.ssh/id_rsa ]]; then
-		local key_to_use=id_rsa;
-	fi
-
-	if command -v keychain &> /dev/null; then
-		local keychain_agents="$(keychain -l 2>&1)";
-		
-		if [[ $key_to_use == id_ed25519 || $key_to_use == id_rsa ]] && 
-		[[ "$keychain_agents" == "$no_key_agent" || "$keychain_agents" == "$error_connecting" || "$keychain_agents" == "$error_no_id" ]]; then
-			eval $(keychain --agents ssh --eval $key_to_use --clear);
-		fi
-		return 0;
-	fi
-	
-	local INSTALLED_KEYCHAIN="Installed keychain, restart shell to run it"
-
-	echo "Installing keychain, restart shell for it to load potential ssh key"
-	
+ensure_ssh_agent () {
+	# macOS: ssh-agent is managed by launchd automatically.
+	# Just ensure ~/.ssh/config has UseKeychain + AddKeysToAgent so passphrases
+	# persist across reboots without any per-operation work.
 	if [[ $IS_MAC == "true" ]]; then
-    	brew update && brew install keychain && echo "$INSTALLED_KEYCHAIN";
-	else 
-		sudo apt update && sudo apt install keychain && echo "$INSTALLED_KEYCHAIN";
+		_ensure_macos_ssh_config
+		return 0
 	fi
+
+	# WSL / headless Linux: use keychain to persist agent across sessions
+	if [[ $IS_WSL == "true" ]] || ! _has_systemd_ssh_agent; then
+		_ensure_keychain
+		return $?
+	fi
+
+	# Linux with systemd: use the systemd ssh-agent user service
+	_ensure_systemd_ssh_agent
+}
+
+_ensure_macos_ssh_config () {
+	local ssh_config="$HOME/.ssh/config"
+
+	# Nothing to do if already configured
+	if [[ -f "$ssh_config" ]] && grep -q "UseKeychain" "$ssh_config" 2>/dev/null; then
+		return 0
+	fi
+
+	# Determine which key exists
+	local key_name=""
+	if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
+		key_name="id_ed25519"
+	elif [[ -f "$HOME/.ssh/id_rsa" ]]; then
+		key_name="id_rsa"
+	else
+		return 0
+	fi
+
+	mkdir -p "$HOME/.ssh"
+	chmod 700 "$HOME/.ssh"
+
+	# Prepend the Host * block (preserves any existing config below)
+	# Uses ~ for IdentityFile since SSH interprets it natively
+	local config_block
+	config_block="Host *
+    AddKeysToAgent yes
+    UseKeychain yes
+    IdentityFile ~/.ssh/$key_name
+"
+	if [[ -f "$ssh_config" ]]; then
+		local existing
+		existing=$(cat "$ssh_config")
+		printf '%s\n\n%s\n' "$config_block" "$existing" > "$ssh_config"
+	else
+		printf '%s\n' "$config_block" > "$ssh_config"
+	fi
+	chmod 600 "$ssh_config"
+
+	# Add key to macOS keychain (one-time, passphrase will be prompted)
+	ssh-add --apple-use-keychain "$HOME/.ssh/$key_name" 2>/dev/null
+	echo "Configured macOS SSH agent with UseKeychain for $key_name"
+}
+
+_has_systemd_ssh_agent () {
+	# Check if systemd user services are available and ssh-agent.service exists
+	command -v systemctl &>/dev/null &&
+	systemctl --user cat ssh-agent.service &>/dev/null 2>&1
+}
+
+_ensure_systemd_ssh_agent () {
+	# Enable the systemd user ssh-agent service if not already running
+	if ! systemctl --user is-active --quiet ssh-agent.service 2>/dev/null; then
+		systemctl --user enable --now ssh-agent.service 2>/dev/null
+	fi
+
+	# Point SSH_AUTH_SOCK to the systemd socket if not already set
+	if [[ -z "$SSH_AUTH_SOCK" || ! -S "$SSH_AUTH_SOCK" ]]; then
+		export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/ssh-agent.socket"
+	fi
+
+	# Ensure AddKeysToAgent is set so keys are loaded on first use
+	local ssh_config="$HOME/.ssh/config"
+	if [[ ! -f "$ssh_config" ]] || ! grep -q "AddKeysToAgent" "$ssh_config" 2>/dev/null; then
+		mkdir -p "$HOME/.ssh"
+		chmod 700 "$HOME/.ssh"
+		printf 'Host *\n    AddKeysToAgent yes\n\n' >> "$ssh_config"
+		chmod 600 "$ssh_config"
+	fi
+}
+
+_ensure_keychain () {
+	local key_to_use=""
+	if [[ -f ~/.ssh/id_ed25519 ]]; then
+		key_to_use=id_ed25519
+	elif [[ -f ~/.ssh/id_rsa ]]; then
+		key_to_use=id_rsa
+	fi
+
+	if command -v keychain &>/dev/null; then
+		if [[ -n "$key_to_use" ]]; then
+			local keychain_status
+			keychain_status="$(keychain -l 2>&1)"
+
+			local no_agent="Could not open a connection to your authentication agent."
+			local err_connect="Error connecting to agent: No such file or directory"
+			local no_id="The agent has no identities."
+
+			if [[ "$keychain_status" == "$no_agent" || "$keychain_status" == "$err_connect" || "$keychain_status" == "$no_id" ]]; then
+				eval "$(keychain --agents ssh --eval "$key_to_use" --clear)"
+			fi
+		fi
+		return 0
+	fi
+
+	echo "Installing keychain (needed for SSH agent on this platform)..."
+	if [[ $IS_MAC == "true" ]]; then
+		brew update && brew install keychain
+	else
+		sudo apt update && sudo apt install -y keychain
+	fi
+	echo "Installed keychain, restart shell to activate"
+}
+
+# Backwards-compatible alias for callers that still reference the old name
+start_or_install_keychain () {
+	ensure_ssh_agent
 }
 
 update_packages () {
@@ -63,15 +158,22 @@ update_packages () {
 
 # Takes the NAME, not the actual variable, of a variable as an argument and changes the string in the variable to be lowercase
 variable_to_lowercase () {
-	local -n variable_to_modify=$1;
-	variable_to_modify=$(echo "$variable_to_modify" | tr '[:upper:]' '[:lower:]');
-	return;
+	if [[ $PROFILE_SHELL == "bash" ]]; then
+		local -n variable_to_modify=$1;
+		variable_to_modify=$(echo "$variable_to_modify" | tr '[:upper:]' '[:lower:]');
+	else
+		# zsh does not support local -n (namerefs), use eval as a portable fallback
+		eval "$1=\"\$(echo \"\${$1}\" | tr '[:upper:]' '[:lower:]')\""
+	fi
 }
 
 variable_to_uppercase () {
-	local -n variable_to_modify=$1;
-	variable_to_modify=$(echo "$variable_to_modify" | tr '[:lower:]' '[:upper:]');
-	return;
+	if [[ $PROFILE_SHELL == "bash" ]]; then
+		local -n variable_to_modify=$1;
+		variable_to_modify=$(echo "$variable_to_modify" | tr '[:lower:]' '[:upper:]');
+	else
+		eval "$1=\"\$(echo \"\${$1}\" | tr '[:lower:]' '[:upper:]')\""
+	fi
 }
 
 pushd_wrapper () {
@@ -91,11 +193,11 @@ grep_specific_filetype_in_subfolders () {
 }
 
 find_entity_size () {
-	if [[ $? -eq 0 ]]; then
+	if [[ $# -eq 0 ]]; then
 		find_all_items_in_folder_size;
 		return;
 	fi
-	
+
 	du -sh "$1";
 }
 

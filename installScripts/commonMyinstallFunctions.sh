@@ -1,7 +1,7 @@
 #!/bin/bash
 
 script_check_args_exist () {
-    if [[ $# < 1 || $1 == "" ]]; then
+    if [[ $# -lt 1 || $1 == "" ]]; then
         return 1;
     fi
 
@@ -42,7 +42,7 @@ script_success_message () {
 }
 
 script_check_if_allready_installed () {
-    if [[ $# < 2 ]]; then
+    if [[ $# -lt 2 ]]; then
         return 1;
     fi
 

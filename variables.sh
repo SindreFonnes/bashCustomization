@@ -1,20 +1,10 @@
 # Variables
 
-### Windows
-handle_wsl () {
-	if [[ "$OSTYPE" == *"darwin"* ]]; then
-		return 0;
-	fi
-	
-	local system_info="$(cat /proc/version | tr '[:upper:]' '[:lower:]')";
-	if [[ "$system_info" == *"wsl"* ]]; then
-		win_main_drive_path="/mnt/c";
-
-		p_win_home="$win_main_drive_path/p";
-	fi
-}
-
-handle_wsl
+### Windows (uses IS_WSL set by determine_running_os in general_functions.sh)
+if [[ "$IS_WSL" == "true" ]]; then
+	win_main_drive_path="/mnt/c";
+	p_win_home="$win_main_drive_path/p";
+fi
 
 ### Linux
 #### Paths

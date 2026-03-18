@@ -1,3 +1,2 @@
 #!/bin/bash
-
-echo "Missing impl";
+"$(dirname "$0")/../showExtensionInfo.sh" "kubernetes" "$(dirname "$0")"

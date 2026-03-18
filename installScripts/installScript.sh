@@ -129,7 +129,7 @@ use_install_script () {
     local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "obsidian" "all")
 
     if [[ $# -ne 0 ]]; then
-        if [[ $# > 1 ]]; then
+        if [[ $# -gt 1 ]]; then
             determine_install_script_to_use "$1" "$2" "${install_options[@]}";
         else
             determine_install_script_to_use "$1" "unfilled_value" "${install_options[@]}";

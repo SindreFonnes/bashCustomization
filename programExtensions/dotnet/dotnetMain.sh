@@ -4,6 +4,6 @@ else
     export DOTNET_EXTENTION_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
 fi
 
-source $DOTNET_EXTENTION_FOLDER_LOCATION/dotnetAliases.sh;
+source "$DOTNET_EXTENTION_FOLDER_LOCATION/dotnetAliases.sh";
 # Not yet needed
 # source $DOTNET_EXTENTION_FOLDER_LOCATION/dotnetFunctions.sh;
