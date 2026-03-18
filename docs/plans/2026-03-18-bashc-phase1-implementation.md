@@ -60,10 +60,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 
 ### Task 1: Initialize the Rust crate
 
-**Files:**
-- Create: `rust/Cargo.toml`
-- Create: `rust/src/main.rs`
-
 - [ ] **Step 1:** Create `Cargo.toml` with 2024 edition. Add dependencies: `clap` (with derive feature), `reqwest` (with blocking and json features), `sha2`, `semver`, `serde` (with derive), `serde_json`, `tokio` (with full features), `indicatif`, `dialoguer`, `anyhow`, `libc`. Use latest versions for all.
 
 - [ ] **Step 2:** Create a minimal `main.rs` that sets up a clap CLI with a single `install` subcommand accepting a tool name string and an `--interactive` flag. Use tokio as the async runtime. For now, just print the detected platform and the requested tool name.
@@ -75,11 +71,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 ---
 
 ### Task 2: Platform detection module
-
-**Files:**
-- Create: `rust/src/common/mod.rs`
-- Create: `rust/src/common/platform.rs`
-- Modify: `rust/src/main.rs`
 
 **Requirements:**
 - Define an `Os` enum with variants: `MacOs`, `Linux`, `Wsl`
@@ -103,11 +94,8 @@ init.sh                        # POSIX bootstrap for fresh machines
 
 ### Task 3: Command execution module
 
-**Files:**
-- Create: `rust/src/common/command.rs`
-- Modify: `rust/src/common/mod.rs`
-
 **Requirements:**
+Note, Result type should reflect if it makes sense to return anything for the method in question. Evaluate if the Result<> is the correct type when starting to implement this
 - `run(program, args) -> Result<String>` — run a command, capture stdout, fail on non-zero exit
 - `run_visible(program, args) -> Result<()>` — run a command inheriting stdin/stdout/stderr (user sees output), fail on non-zero exit
 - `exists(program) -> bool` — check if a command is on PATH
@@ -121,10 +109,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 ---
 
 ### Task 4: Download module
-
-**Files:**
-- Create: `rust/src/common/download.rs`
-- Modify: `rust/src/common/mod.rs`
 
 **Requirements:**
 - `download_file(url, dest_path) -> Result<()>` — download a URL to a file, showing a progress bar via `indicatif`
@@ -140,10 +124,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 ---
 
 ### Task 5: Package manager module
-
-**Files:**
-- Create: `rust/src/common/package_manager.rs`
-- Modify: `rust/src/common/mod.rs`
 
 **Requirements:**
 - `install(platform, package) -> Result<()>` — install a package via brew (macOS) or apt (Linux)
@@ -161,10 +141,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 
 ### Task 6: Version comparison module
 
-**Files:**
-- Create: `rust/src/common/version.rs`
-- Modify: `rust/src/common/mod.rs`
-
 **Requirements:**
 - `parse(version_str) -> Result<Version>` — parse a version string, stripping common prefixes (`v`, `go`). Use the `semver` crate.
 - `is_newer(current, new) -> Result<bool>` — returns true if `new` is greater than `current`
@@ -179,10 +155,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 ## Chunk 2: Installer interface and first tools
 
 ### Task 7: Installer interface and orchestrator
-
-**Files:**
-- Create: `rust/src/install/mod.rs`
-- Modify: `rust/src/main.rs`
 
 **Requirements:**
 
@@ -210,9 +182,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 ### Task 8: Go installer
 
-**Files:**
-- Create: `rust/src/install/go.rs`
-
 **Problem:** Install the Go language runtime with proper arch detection and checksum verification.
 
 **Requirements:**
@@ -230,10 +199,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 ### Task 9: kubectl installer
 
-**Files:**
-- Create: `rust/src/install/kubectl.rs`
-- Modify: `rust/src/install/mod.rs` (register)
-
 **Problem:** Install kubectl with proper arch detection and checksum verification.
 
 **Requirements:**
@@ -247,10 +212,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 10: Rust (rustup) installer
-
-**Files:**
-- Create: `rust/src/install/rust_lang.rs`
-- Modify: `rust/src/install/mod.rs` (register)
 
 **Problem:** Install Rust via rustup.
 
@@ -268,13 +229,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ## Chunk 3: Remaining tool installers
 
 ### Task 11: brew, docker, azure, dotnet installers
-
-**Files:**
-- Create: `rust/src/install/brew.rs`
-- Create: `rust/src/install/docker.rs`
-- Create: `rust/src/install/azure.rs`
-- Create: `rust/src/install/dotnet.rs`
-- Modify: `rust/src/install/mod.rs` (register all)
 
 **brew:**
 - macOS only. Calls `ensure_brew()`. Rejects WSL explicitly. Does not need sudo.
@@ -299,13 +253,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 12: neovim, obsidian, java, github_cli installers
-
-**Files:**
-- Create: `rust/src/install/neovim.rs`
-- Create: `rust/src/install/obsidian.rs`
-- Create: `rust/src/install/java.rs`
-- Create: `rust/src/install/github_cli.rs`
-- Modify: `rust/src/install/mod.rs` (register all)
 
 **neovim:**
 - macOS: `brew install neovim`
@@ -332,12 +279,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 13: terraform, postgres, javascript installers
-
-**Files:**
-- Create: `rust/src/install/terraform.rs`
-- Create: `rust/src/install/postgres.rs`
-- Create: `rust/src/install/javascript.rs`
-- Modify: `rust/src/install/mod.rs` (register all)
 
 **terraform:**
 - macOS: `brew install terraform`
@@ -367,9 +308,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 ### Task 14: Parallel execution for `install all`
 
-**Files:**
-- Modify: `rust/src/install/mod.rs`
-
 **Problem:** `install all` currently runs sequentially. Tools should install in parallel where possible.
 
 **Requirements:**
@@ -389,10 +327,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 ### Task 15: Interactive menu
 
-**Files:**
-- Modify: `rust/src/install/mod.rs`
-- Modify: `rust/src/main.rs`
-
 **Problem:** `bashc install --interactive` should show a multi-select menu of all tools.
 
 **Requirements:**
@@ -408,9 +342,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 16: GitHub Actions release workflow
-
-**Files:**
-- Create: `.github/workflows/release.yml`
 
 **Problem:** Precompiled binaries need to be built and published for every release.
 
@@ -429,9 +360,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 17: Bootstrap init.sh
-
-**Files:**
-- Create: `init.sh`
 
 **Problem:** A fresh machine needs to download and run the correct bashc binary with zero dependencies beyond `curl` and a POSIX shell.
 
@@ -452,9 +380,6 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ---
 
 ### Task 18: Update shell integration
-
-**Files:**
-- Modify: `installScripts/installMain.sh`
 
 **Problem:** The existing `run_my_install` shell function should prefer the Rust binary when available.
 
