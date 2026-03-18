@@ -2,11 +2,25 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Incrementally migrate shell customization framework components to Rust binaries, starting with standalone tools and working toward shell-config generation.
+**Goal:** Migrate the shell customization framework to Rust binaries distributed as precompiled releases, so a fresh machine can be fully set up by cloning the repo and running a single init command.
 
-**Architecture:** A Rust workspace (`bashc`) containing multiple binary crates. Shell scripts remain for anything that mutates shell state (aliases, exports, sourcing). Rust handles computation: version comparison, downloads, checksums, OS/arch detection, script dispatch. The interface between Rust and shell is stdout — Rust prints commands/data, shell `eval`s or acts on it.
+**Architecture:** A Rust workspace (`bashc`) containing multiple binary crates. Binaries are cross-compiled via GitHub Actions and distributed as GitHub Releases. A thin POSIX bootstrap script (`init.sh`) detects the platform, downloads the correct precompiled binary, and hands off to it. Shell scripts remain only for things that must mutate the current shell process (aliases, exports, sourcing). The Rust binary must fail with a clear error on unsupported platforms rather than silently misbehaving.
 
-**Tech Stack:** Rust, clap (CLI), reqwest (HTTP), sha2 (checksums), semver (version comparison), serde/serde_json (config parsing)
+**Distribution model:**
+```
+Fresh machine → clone repo → run init.sh (~30 lines POSIX shell)
+  → init.sh detects OS+arch
+  → downloads bashc-install from GitHub Releases
+  → bashc-install takes over: installs all tools, configures git, sets up shell
+```
+
+**Supported platforms:**
+- `x86_64-apple-darwin` (Intel Mac)
+- `aarch64-apple-darwin` (Apple Silicon)
+- `x86_64-unknown-linux-gnu` (Linux x86_64)
+- `x86_64-unknown-linux-musl` (Alpine/WSL static binary)
+
+**Tech Stack:** Rust, clap (CLI), reqwest (HTTP), sha2 (checksums), semver (version comparison), serde/serde_json (config parsing), GitHub Actions (CI/CD cross-compilation)
 
 ---
 
@@ -49,6 +63,8 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 **Crate location:** `rust/bashc-install/`
 
+**Distribution:** Precompiled binaries via GitHub Releases. No Rust toolchain needed on the target machine. A thin POSIX bootstrap script downloads the correct binary for the platform.
+
 ### Task 1.1: Scaffold the Rust workspace
 
 **Files:**
@@ -60,7 +76,7 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 - [ ] Initialize workspace with `bashc-install` binary and `bashc-common` library crate
 - [ ] Add dependencies: `clap`, `reqwest`, `sha2`, `semver`, `serde`, `serde_json`, `tokio`
-- [ ] Implement `bashc-common::platform` module: OS detection (mac/wsl/linux), arch detection (amd64/arm64)
+- [ ] Implement `bashc-common::platform` module: OS detection (mac/wsl/linux), arch detection (amd64/arm64), with explicit error on unsupported platforms
 - [ ] Implement `bashc-common::version` module: semver comparison (replaces `is_greater_than_current_version`)
 - [ ] Implement `bashc-common::download` module: download with progress, checksum verification
 - [ ] Implement `bashc-common::package_manager` module: brew/apt dispatch
@@ -71,36 +87,58 @@ The Go install script is the most mature (has checksum verification, version fet
 
 **Files:**
 - Create: `rust/bashc-install/src/tools/go.rs`
-- Modify: `installScripts/go/installGo.sh` (replace body with call to Rust binary)
 
 - [ ] Implement Go installer: fetch latest version from go.dev API, detect OS+arch, download, verify sha256, extract, update PATH
 - [ ] Wire into `bashc-install go` subcommand
 - [ ] Test on macOS, verify arm64 detection works (fixes the hardcoded amd64 bug)
-- [ ] Update `installGo.sh` to delegate to Rust binary with shell fallback
 
 ### Task 1.3: Port remaining install scripts
 
-Port each install script following the Go template. Priority order based on complexity and cross-platform needs:
+Port all install scripts as Rust subcommands. Priority order based on complexity:
 
 - [ ] `kubectl` — already has checksum verification, benefits from arch detection
-- [ ] `rust` — simple (just runs rustup)
-- [ ] `docker` — platform-specific
-- [ ] `azure` — currently uses dangerous `curl | sudo bash`
-- [ ] `dotnet` — currently hardcoded to Ubuntu 22.04
-- [ ] `neovim` — appimage is x86-only, needs arch-aware alternative
-- [ ] `obsidian` — HTML scraping of GitHub releases, needs proper API use
-- [ ] `brew` — macOS only, relatively simple
-- [ ] `java` — simple apt/brew dispatch
-- [ ] `github` — simple apt/brew dispatch
-- [ ] `terraform` — simple apt/brew dispatch
-- [ ] `postgres` — simple apt/brew dispatch
-- [ ] `javascript` (nvm/pnpm/bun/yarn) — multiple sub-tools
+- [ ] `rust` — downloads and runs rustup-init
+- [ ] `docker` — platform-specific (brew on macOS, apt repo on Linux)
+- [ ] `azure` — replace dangerous `curl | sudo bash` with proper apt repo setup
+- [ ] `dotnet` — replace hardcoded Ubuntu 22.04 with dynamic distro detection
+- [ ] `neovim` — appimage is x86-only, needs arch-aware alternative (brew on macOS, appimage or apt on Linux)
+- [ ] `obsidian` — replace HTML scraping with GitHub Releases API
+- [ ] `brew` — macOS only, installs Homebrew
+- [ ] `java` — brew/apt dispatch
+- [ ] `github` — brew/apt dispatch with GPG key setup
+- [ ] `terraform` — brew/apt dispatch with HashiCorp repo
+- [ ] `postgres` — brew/apt dispatch
+- [ ] `javascript` — nvm, pnpm, bun, yarn as sub-installers
 
-### Task 1.4: Replace the install menu
+### Task 1.4: Interactive menu and `all` command
 
 - [ ] Implement `bashc-install --interactive` with a proper TUI menu (replaces the fragile positional-parameter case statement in `installScript.sh`)
 - [ ] Implement `bashc-install all` to run all installers sequentially
 - [ ] Update `installMain.sh` to point `run_my_install` at the Rust binary
+
+### Task 1.5: GitHub Actions CI/CD for cross-compilation
+
+**Files:**
+- Create: `.github/workflows/release.yml`
+
+- [ ] Set up GitHub Actions workflow triggered on version tags (e.g., `v*`)
+- [ ] Cross-compile for all supported targets: `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
+- [ ] Upload binaries as GitHub Release assets with platform-specific names (e.g., `bashc-install-aarch64-apple-darwin`)
+- [ ] Include SHA256 checksums file in the release
+
+### Task 1.6: Bootstrap init script
+
+**Files:**
+- Create: `init.sh` (replaces current `init_repo.sh`)
+
+- [ ] Write thin POSIX-compatible bootstrap script (~30 lines) that:
+  - Detects OS (macOS/Linux) and architecture (x86_64/aarch64)
+  - Errors clearly on unsupported platforms
+  - Downloads the correct `bashc-install` binary from the latest GitHub Release
+  - Verifies the download checksum
+  - Makes the binary executable and runs it
+- [ ] `bashc-install` then handles: git configuration, tool installation, shell setup
+- [ ] Deprecate/remove `init_repo.sh` once `init.sh` is proven
 
 ---
 
