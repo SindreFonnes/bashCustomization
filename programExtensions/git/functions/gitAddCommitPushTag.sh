@@ -2,6 +2,7 @@
 
 source "$GIT_EXTENTION_FOLDER_LOCATION/functions/gitCommonFunctions.sh";
 
+# TODO(rust-migration): Replace with bashc semver compare
 is_greater_than_current_version () {
 	local current_version=$(cat ./package.json | sed -n "/\"version\"/p" | tr -dc '[0-9.]');
 	local current_version_array=($(echo $current_version | tr . " "))

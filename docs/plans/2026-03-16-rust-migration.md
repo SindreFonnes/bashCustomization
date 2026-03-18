@@ -20,8 +20,8 @@ Currently duplicated across: `general_functions.sh`, `variables.sh` (`handle_wsl
 
 **Target state:** All modules use the `IS_MAC`/`IS_WSL` globals set by `determine_running_os` in `general_functions.sh`. Install scripts that run as subprocesses can source `general_functions.sh` or use their own `commonMyinstallFunctions.sh` helpers, but the logic should match.
 
-- [ ] Refactor `variables.sh` `handle_wsl()` to use `IS_WSL` instead of re-reading `/proc/version`
-- [ ] Fix `standard_settings.sh` to check `$PROFILE_SHELL` instead of `$SHELL`
+- [x] Refactor `variables.sh` `handle_wsl()` to use `IS_WSL` instead of re-reading `/proc/version`
+- [x] Fix `standard_settings.sh` to check `$PROFILE_SHELL` instead of `$SHELL`
 
 ### Task 0.2: Deduplicate `is_greater_than_current_version`
 
@@ -29,15 +29,15 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 **Target state:** Single definition in a shared location. For now, keep both since they run in different contexts (sourced vs subprocess), but mark both with a comment pointing to the future Rust `semver` replacement.
 
-- [ ] Add comment to both copies: `# TODO(rust-migration): Replace with bashc semver compare`
+- [x] Add comment to both copies: `# TODO(rust-migration): Replace with bashc semver compare`
 
 ### Task 0.3: Fix double-loading in main.sh
 
-- [ ] Remove the first `load_shell_extentionfiles "false"` call, keep only the `"first_load"` call after the update check
+- [x] Remove the first `load_shell_extentionfiles "false"` call, keep only the `"first_load"` call after the update check
 
 ### Task 0.4: Remove redundant self-source in load_shell_extentionfiles
 
-- [ ] Remove `source $bashC/general_functions.sh` from inside `load_shell_extentionfiles` (it's already sourced by `main.sh` before the function is called)
+- [x] Remove `source $bashC/general_functions.sh` from inside `load_shell_extentionfiles` (it's already sourced by `main.sh` before the function is called)
 
 ---
 
@@ -112,7 +112,7 @@ Port each install script following the Go template. Priority order based on comp
 
 ### Task 2.1: Port git configuration
 
-- [ ] Implement `bashc-scripts git-config` — interactive git configuration using `git config --global` commands (replaces `configureGit.sh` and fixes the non-existent template path bug)
+- [ ] Implement `bashc-scripts git-config` — interactive git configuration (replaces `configureGit.sh`, which was already fixed to use `git config --global` commands and the non-existent template path bug is resolved)
 
 ### Task 2.2: Port GPG signing setup
 
@@ -185,7 +185,7 @@ These cannot be replaced by external binaries because they mutate the current sh
 - `restart_shell` — uses `exec` to replace shell process
 - `pushd_wrapper`/`popd_wrapper` — manipulate shell directory stack
 - `load_shell_extentionfiles` — the sourcing mechanism itself (until Phase 4)
-- `start_or_install_keychain` — uses `eval` to load SSH agent into current shell
+- `ensure_ssh_agent` — platform-aware SSH agent setup (macOS native keychain, systemd on Linux, keychain on WSL)
 - `update_packages` — simple brew/apt wrapper, not worth porting
 - `standard_settings.sh` — Oh-My-Zsh integration is deeply zsh-specific
 - `local/` customization layer — user-specific, must remain flexible
