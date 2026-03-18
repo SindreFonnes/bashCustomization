@@ -27,6 +27,12 @@
 
 ---
 
+## Return type guidance
+
+The function signatures below use `Result<T>` as a suggestion, not a prescription. The return types should reflect what actually makes sense in context — evaluate whether `Result` is appropriate and what the inner type should be when implementing each function. Some functions may need to return data the caller uses, others may only need to signal success/failure, and some might not need `Result` at all. Let the implementation context drive these decisions.
+
+---
+
 ## File structure
 
 The required modules are listed below. Simple installers (e.g., `brew install X` on macOS, `apt install X` on Linux) can live in a single file. More complex installers (e.g., Go with version API + checksum, or javascript with 4 sub-tools) may warrant a dedicated module directory. The implementing agent should use their judgement — prefer the simplest structure that keeps things readable.
@@ -95,7 +101,6 @@ init.sh                        # POSIX bootstrap for fresh machines
 ### Task 3: Command execution module
 
 **Requirements:**
-Note, Result type should reflect if it makes sense to return anything for the method in question. Evaluate if the Result<> is the correct type when starting to implement this
 - `run(program, args) -> Result<String>` — run a command, capture stdout, fail on non-zero exit
 - `run_visible(program, args) -> Result<()>` — run a command inheriting stdin/stdout/stderr (user sees output), fail on non-zero exit
 - `exists(program) -> bool` — check if a command is on PATH
