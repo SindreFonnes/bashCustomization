@@ -14,6 +14,8 @@
 
 ## File structure
 
+The required modules are listed below. Simple installers (e.g., `brew install X` on macOS, `apt install X` on Linux) can live in a single file. More complex installers (e.g., Go with version API + checksum, or javascript with 4 sub-tools) may warrant a dedicated module directory. The implementing agent should use their judgement — prefer the simplest structure that keeps things readable.
+
 ```
 rust/
   Cargo.toml
@@ -21,20 +23,7 @@ rust/
     main.rs                    # clap CLI, tokio runtime entry
     install/
       mod.rs                   # installer interface, registry, parallel orchestrator, sudo pre-flight
-      go.rs
-      kubectl.rs
-      rust_lang.rs
-      docker.rs
-      azure.rs
-      dotnet.rs
-      neovim.rs
-      obsidian.rs
-      brew.rs
-      java.rs
-      github_cli.rs
-      terraform.rs
-      postgres.rs
-      javascript.rs            # nvm, pnpm, bun, yarn
+      ...                      # one file per simple installer, or a directory for complex ones
     common/
       mod.rs
       platform.rs              # Platform struct, OS/arch detection
@@ -47,6 +36,8 @@ rust/
     release.yml                # cross-compile + GitHub Release
 init.sh                        # POSIX bootstrap for fresh machines
 ```
+
+**Required installers** (14 tools): go, kubectl, rust, docker, azure, dotnet, neovim, obsidian, brew, java, github CLI, terraform, postgres, javascript (nvm/pnpm/bun/yarn).
 
 ---
 
