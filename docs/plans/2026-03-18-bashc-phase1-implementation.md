@@ -12,6 +12,21 @@
 
 ---
 
+## Testing approach
+
+**What to test:** Pure functions and logic that don't touch the filesystem or run subprocesses. These are the areas where bugs are subtle and tests are cheap.
+
+- `common/version.rs` — prefix stripping, comparison logic. Easy to test, important to get right.
+- `common/download.rs` — `verify_sha256` (hash a known byte string, check match/mismatch). Skip testing actual HTTP downloads.
+- `common/platform.rs` — `go_os()`/`go_arch()` return correct strings for known platform values. `Platform::detect()` returns a valid result on the current machine.
+- Installer registry — `find_installer` returns the right tool, unknown names return None.
+
+**What NOT to test:** Anything that runs shell commands, installs packages, downloads files, or modifies the system. These are integration concerns — verify them manually during Task 19 (final integration test). Trying to sandbox-test `brew install` or `apt-get` would add complexity with little value.
+
+**Guideline for the implementer:** If a function is pure (data in, data out, no side effects), consider writing a test if the logic is non-trivial. If it shells out or touches the filesystem beyond temp files, skip it.
+
+---
+
 ## File structure
 
 The required modules are listed below. Simple installers (e.g., `brew install X` on macOS, `apt install X` on Linux) can live in a single file. More complex installers (e.g., Go with version API + checksum, or javascript with 4 sub-tools) may warrant a dedicated module directory. The implementing agent should use their judgement — prefer the simplest structure that keeps things readable.
@@ -49,7 +64,7 @@ init.sh                        # POSIX bootstrap for fresh machines
 - Create: `rust/Cargo.toml`
 - Create: `rust/src/main.rs`
 
-- [ ] **Step 1:** Create `Cargo.toml` with 2024 edition. Add dependencies: `clap` (with derive feature), `reqwest` (with blocking and json features), `sha2`, `semver`, `serde` (with derive), `serde_json`, `tokio` (with full features), `indicatif`, `dialoguer`, `anyhow`, `libc`. Use latest versions for all — do not pin.
+- [ ] **Step 1:** Create `Cargo.toml` with 2024 edition. Add dependencies: `clap` (with derive feature), `reqwest` (with blocking and json features), `sha2`, `semver`, `serde` (with derive), `serde_json`, `tokio` (with full features), `indicatif`, `dialoguer`, `anyhow`, `libc`. Use latest versions for all.
 
 - [ ] **Step 2:** Create a minimal `main.rs` that sets up a clap CLI with a single `install` subcommand accepting a tool name string and an `--interactive` flag. Use tokio as the async runtime. For now, just print the detected platform and the requested tool name.
 
