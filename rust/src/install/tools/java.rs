@@ -12,7 +12,7 @@ impl crate::install::Installer for JavaInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -24,7 +24,7 @@ impl crate::install::Installer for JavaInstaller {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install openjdk via brew");
             } else {
-                println!("  Would install default-jre and default-jdk via apt");
+                println!("  Would install default-jre and default-jdk via package manager");
             }
             return Ok(());
         }
@@ -34,9 +34,9 @@ impl crate::install::Installer for JavaInstaller {
             return package_manager::brew_install("openjdk");
         }
 
-        println!("Installing Java via apt...");
-        package_manager::apt_install("default-jre")?;
-        package_manager::apt_install("default-jdk")?;
+        println!("Installing Java via package manager...");
+        package_manager::install(&config.platform, "default-jre")?;
+        package_manager::install(&config.platform, "default-jdk")?;
         println!("Java installed");
         Ok(())
     }

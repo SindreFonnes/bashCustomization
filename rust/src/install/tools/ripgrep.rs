@@ -12,7 +12,7 @@ impl crate::install::Installer for RipgrepInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -24,7 +24,7 @@ impl crate::install::Installer for RipgrepInstaller {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install ripgrep via brew");
             } else {
-                println!("  Would install ripgrep via apt");
+                println!("  Would install ripgrep via package manager");
             }
             return Ok(());
         }
@@ -34,7 +34,7 @@ impl crate::install::Installer for RipgrepInstaller {
             return package_manager::brew_install("ripgrep");
         }
 
-        println!("Installing ripgrep via apt...");
-        package_manager::apt_install("ripgrep")
+        println!("Installing ripgrep via package manager...");
+        package_manager::install(&config.platform, "ripgrep")
     }
 }

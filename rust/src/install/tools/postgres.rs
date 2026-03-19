@@ -12,7 +12,7 @@ impl crate::install::Installer for PostgresInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -24,7 +24,7 @@ impl crate::install::Installer for PostgresInstaller {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install postgresql via brew");
             } else {
-                println!("  Would install postgresql and postgresql-contrib via apt");
+                println!("  Would install postgresql and postgresql-contrib via package manager");
             }
             return Ok(());
         }
@@ -34,9 +34,9 @@ impl crate::install::Installer for PostgresInstaller {
             return package_manager::brew_install("postgresql");
         }
 
-        println!("Installing PostgreSQL via apt...");
-        package_manager::apt_install("postgresql")?;
-        package_manager::apt_install("postgresql-contrib")?;
+        println!("Installing PostgreSQL via package manager...");
+        package_manager::install(&config.platform, "postgresql")?;
+        package_manager::install(&config.platform, "postgresql-contrib")?;
         println!("PostgreSQL installed");
         Ok(())
     }

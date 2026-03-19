@@ -12,7 +12,7 @@ impl crate::install::Installer for ShellcheckInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -24,7 +24,7 @@ impl crate::install::Installer for ShellcheckInstaller {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install shellcheck via brew");
             } else {
-                println!("  Would install shellcheck via apt");
+                println!("  Would install shellcheck via package manager");
             }
             return Ok(());
         }
@@ -34,7 +34,7 @@ impl crate::install::Installer for ShellcheckInstaller {
             return package_manager::brew_install("shellcheck");
         }
 
-        println!("Installing shellcheck via apt...");
-        package_manager::apt_install("shellcheck")
+        println!("Installing shellcheck via package manager...");
+        package_manager::install(&config.platform, "shellcheck")
     }
 }
