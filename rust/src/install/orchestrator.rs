@@ -71,6 +71,29 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
         }
     }
 
+    // Pre-flight: bootstrap doas on Alpine when running as root with no escalator
+    //
+    // On a fresh Alpine install there is no sudo/doas/su, so tools that rely on
+    // privilege escalation would fail later. If we are already root we can
+    // install doas right now (best-effort — if it fails we warn and continue;
+    // tools that need escalation will produce their own clear error messages).
+    if !config.dry_run
+        && crate::common::command::is_root()
+        && !crate::common::privilege::has_path_escalator()
+        && config.platform.is_alpine()
+    {
+        println!("=== Pre-flight: bootstrapping doas on Alpine ===");
+        if let Some(doas_tool) = find_tool("doas") {
+            match doas_tool.install(config) {
+                Ok(()) => println!("doas bootstrapped successfully."),
+                Err(e) => println!(
+                    "Warning: doas bootstrap failed ({e:#}). \
+                    Tools requiring privilege escalation may fail."
+                ),
+            }
+        }
+    }
+
     // Group by phase
     let phase0: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 0).collect();
     let phase1: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 1).collect();

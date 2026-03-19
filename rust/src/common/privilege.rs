@@ -2,6 +2,22 @@ use anyhow::{Result, bail};
 
 use super::command;
 
+/// Returns `Ok(())` if any privilege escalation method is available
+/// (running as root, or sudo/doas/su on PATH), `Err` otherwise.
+///
+/// Useful for pre-flight checks that need to know if escalation is possible
+/// without actually running a privileged command.
+pub fn detect_escalator() -> Result<()> {
+    detect_escalator_inner().map(|_| ())
+}
+
+/// Returns `true` if sudo, doas, or su exist on PATH (ignoring whether the
+/// current process is root).  Used in the doas bootstrap pre-flight to decide
+/// whether a PATH-based escalator is already present.
+pub fn has_path_escalator() -> bool {
+    command::exists("sudo") || command::exists("doas") || command::exists("su")
+}
+
 /// Escalation method detected at runtime.
 enum Escalator {
     Root,
@@ -14,7 +30,7 @@ enum Escalator {
 ///
 /// Preference order: root (no escalation needed) > sudo > doas > su.
 /// Returns an error if none are found, directing the user to install doas.
-fn detect_escalator() -> Result<Escalator> {
+fn detect_escalator_inner() -> Result<Escalator> {
     if command::is_root() {
         return Ok(Escalator::Root);
     }
@@ -45,7 +61,7 @@ fn detect_escalator() -> Result<Escalator> {
 /// Note: `su -c` requires the full command as a single string argument,
 /// unlike sudo/doas which accept program + args directly.
 pub fn run_privileged(program: &str, args: &[&str]) -> Result<()> {
-    match detect_escalator()? {
+    match detect_escalator_inner()? {
         Escalator::Root => command::run_visible(program, args),
         Escalator::Sudo => {
             let mut sudo_args = vec![program];
