@@ -65,6 +65,7 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         );
 
         if result.is_err() {
+            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
             set_brew_failed();
             return result;
         }
@@ -84,6 +85,7 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         );
 
         if result.is_err() {
+            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
             set_brew_failed();
             return result;
         }

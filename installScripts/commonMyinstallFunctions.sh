@@ -154,5 +154,11 @@ run_my_install () {
         return 1;
     fi
 
+    # Prefer bashc Rust binary when available
+    if command -v bashc &> /dev/null; then
+        bashc install "$1";
+        return $?;
+    fi
+
     $MYINSTALL_SCRIPT_LOCATION $1 $2;
 }
