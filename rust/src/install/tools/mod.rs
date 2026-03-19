@@ -2,6 +2,7 @@ pub mod azure;
 pub mod base;
 pub mod bat;
 pub mod brew;
+pub mod doas;
 pub mod docker;
 pub mod dotnet;
 pub mod eza;

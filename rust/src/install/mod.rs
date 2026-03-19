@@ -42,6 +42,7 @@ pub trait Installer: Send + Sync {
 /// allocation. Adding a new installer without a match arm is a compile error.
 #[derive(Debug, Clone, Copy)]
 pub enum Tool {
+    Doas(tools::doas::DoasInstaller),
     Brew(tools::brew::BrewInstaller),
     Base(tools::base::BaseInstaller),
     Go(tools::go::GoInstaller),
@@ -69,6 +70,7 @@ pub enum Tool {
 macro_rules! delegate {
     ($self:ident, $method:ident $(, $arg:expr)*) => {
         match $self {
+            Tool::Doas(i)       => i.$method($($arg),*),
             Tool::Brew(i)       => i.$method($($arg),*),
             Tool::Base(i)       => i.$method($($arg),*),
             Tool::Go(i)         => i.$method($($arg),*),
@@ -118,7 +120,8 @@ impl Installer for Tool {
 
 /// All registered tools in installation order.
 pub const ALL_TOOLS: &[Tool] = &[
-    // Phase 0: base
+    // Phase 0: base (doas first — bootstraps privilege escalation)
+    Tool::Doas(tools::doas::DoasInstaller),
     Tool::Brew(tools::brew::BrewInstaller),
     Tool::Base(tools::base::BaseInstaller),
     // Phase 1: parallel tools
@@ -172,7 +175,7 @@ mod tests {
 
     #[test]
     fn all_tools_count() {
-        assert_eq!(ALL_TOOLS.len(), 21, "expected 21 tools (20 + base)");
+        assert_eq!(ALL_TOOLS.len(), 22, "expected 22 tools (21 + doas)");
     }
 
     #[test]
