@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, download, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct KubectlInstaller;
 
-impl super::Installer for KubectlInstaller {
+impl crate::install::Installer for KubectlInstaller {
     fn name(&self) -> &str {
         "kubectl"
     }

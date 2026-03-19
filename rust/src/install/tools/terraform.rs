@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TerraformInstaller;
 
-impl super::Installer for TerraformInstaller {
+impl crate::install::Installer for TerraformInstaller {
     fn name(&self) -> &str {
         "terraform"
     }

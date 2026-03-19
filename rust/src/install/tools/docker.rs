@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DockerInstaller;
 
-impl super::Installer for DockerInstaller {
+impl crate::install::Installer for DockerInstaller {
     fn name(&self) -> &str {
         "docker"
     }

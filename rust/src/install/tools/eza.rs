@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EzaInstaller;
 
-impl super::Installer for EzaInstaller {
+impl crate::install::Installer for EzaInstaller {
     fn name(&self) -> &str {
         "eza"
     }

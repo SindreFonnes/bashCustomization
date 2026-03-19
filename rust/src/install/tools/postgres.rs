@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PostgresInstaller;
 
-impl super::Installer for PostgresInstaller {
+impl crate::install::Installer for PostgresInstaller {
     fn name(&self) -> &str {
         "postgres"
     }

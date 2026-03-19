@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GithubCliInstaller;
 
-impl super::Installer for GithubCliInstaller {
+impl crate::install::Installer for GithubCliInstaller {
     fn name(&self) -> &str {
         "github"
     }

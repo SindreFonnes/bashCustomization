@@ -1,14 +1,14 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
-pub struct ShellcheckInstaller;
+pub struct JavaInstaller;
 
-impl super::Installer for ShellcheckInstaller {
+impl crate::install::Installer for JavaInstaller {
     fn name(&self) -> &str {
-        "shellcheck"
+        "java"
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
@@ -16,25 +16,28 @@ impl super::Installer for ShellcheckInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("shellcheck")
+        command::exists("java")
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
-                println!("  Would install shellcheck via brew");
+                println!("  Would install openjdk via brew");
             } else {
-                println!("  Would install shellcheck via apt");
+                println!("  Would install default-jre and default-jdk via apt");
             }
             return Ok(());
         }
 
         if !package_manager::is_brew_failed() && package_manager::has_brew() {
-            println!("Installing shellcheck via brew...");
-            return package_manager::brew_install("shellcheck");
+            println!("Installing Java (OpenJDK) via brew...");
+            return package_manager::brew_install("openjdk");
         }
 
-        println!("Installing shellcheck via apt...");
-        package_manager::apt_install("shellcheck")
+        println!("Installing Java via apt...");
+        package_manager::apt_install("default-jre")?;
+        package_manager::apt_install("default-jdk")?;
+        println!("Java installed");
+        Ok(())
     }
 }

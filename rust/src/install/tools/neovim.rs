@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, download, package_manager, platform::{Arch, Platform}};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct NeovimInstaller;
 
-impl super::Installer for NeovimInstaller {
+impl crate::install::Installer for NeovimInstaller {
     fn name(&self) -> &str {
         "neovim"
     }

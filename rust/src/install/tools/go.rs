@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::common::{command, download, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GoInstaller;
@@ -22,7 +22,7 @@ struct GoFile {
     sha256: String,
 }
 
-impl super::Installer for GoInstaller {
+impl crate::install::Installer for GoInstaller {
     fn name(&self) -> &str {
         "go"
     }

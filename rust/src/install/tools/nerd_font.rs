@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::common::{command, download, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct NerdFontInstaller;
@@ -18,7 +18,7 @@ struct GitHubAsset {
     browser_download_url: String,
 }
 
-impl super::Installer for NerdFontInstaller {
+impl crate::install::Installer for NerdFontInstaller {
     fn name(&self) -> &str {
         "nerd-font"
     }

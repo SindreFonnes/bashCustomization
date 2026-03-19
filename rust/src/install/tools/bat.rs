@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BatInstaller;
 
-impl super::Installer for BatInstaller {
+impl crate::install::Installer for BatInstaller {
     fn name(&self) -> &str {
         "bat"
     }

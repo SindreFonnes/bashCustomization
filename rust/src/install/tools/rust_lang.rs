@@ -2,12 +2,12 @@ use anyhow::Result;
 
 use crate::common::command;
 use crate::common::platform::Platform;
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RustInstaller;
 
-impl super::Installer for RustInstaller {
+impl crate::install::Installer for RustInstaller {
     fn name(&self) -> &str {
         "rust"
     }

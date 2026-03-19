@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BrewInstaller;
 
-impl super::Installer for BrewInstaller {
+impl crate::install::Installer for BrewInstaller {
     fn name(&self) -> &str {
         "brew"
     }

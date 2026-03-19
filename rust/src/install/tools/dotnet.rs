@@ -1,12 +1,12 @@
 use anyhow::{Result, bail};
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DotnetInstaller;
 
-impl super::Installer for DotnetInstaller {
+impl crate::install::Installer for DotnetInstaller {
     fn name(&self) -> &str {
         "dotnet"
     }

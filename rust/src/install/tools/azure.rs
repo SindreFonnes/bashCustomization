@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::common::{command, package_manager, platform::Platform};
-use super::InstallConfig;
+use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AzureInstaller;
 
-impl super::Installer for AzureInstaller {
+impl crate::install::Installer for AzureInstaller {
     fn name(&self) -> &str {
         "azure"
     }
