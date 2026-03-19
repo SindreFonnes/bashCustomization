@@ -33,6 +33,10 @@
 
 The function signatures below use `Result<T>` as a suggestion, not a prescription. The return types should reflect what actually makes sense in context — evaluate whether `Result` is appropriate and what the inner type should be when implementing each function. Some functions may need to return data the caller uses, others may only need to signal success/failure, and some might not need `Result` at all. Let the implementation context drive these decisions.
 
+## Version parsing note
+
+The `semver` crate strictly validates semver format. Some tools use non-standard version strings (e.g., Go's `go1.22.0`, kubectl's `v1.30.0`). The `version::parse` function must strip known prefixes (`v`, `go`) before passing to `semver::Version::parse`. If a version string still doesn't parse after prefix stripping, return a clear error showing the raw string — don't silently swallow it.
+
 ---
 
 ## File structure
@@ -60,7 +64,7 @@ rust/
 init.sh                        # POSIX bootstrap for fresh machines
 ```
 
-**Required installers** (19 tools): go, kubectl, rust, docker, azure, dotnet, neovim, obsidian, brew, java, github CLI, terraform, postgres, javascript (nvm/pnpm/bun/yarn), ripgrep, bat, fd, eza, shellcheck.
+**Required installers** (20 tools): go, kubectl, rust, docker, azure, dotnet, neovim, obsidian, brew, java, github CLI, terraform, postgres, javascript (nvm/pnpm/bun/yarn), ripgrep, bat, fd, eza, shellcheck, nerd-font.
 
 ---
 
@@ -70,7 +74,7 @@ init.sh                        # POSIX bootstrap for fresh machines
 
 - [ ] **Step 1:** Create `Cargo.toml` with 2024 edition. Add dependencies: `clap` (with derive feature), `reqwest` (with blocking and json features), `sha2`, `semver`, `serde` (with derive), `serde_json`, `tokio` (with full features), `indicatif`, `dialoguer`, `anyhow`, `libc`. Use latest versions for all.
 
-- [ ] **Step 2:** Create a minimal `main.rs` that sets up a clap CLI with a single `install` subcommand accepting a tool name string and an `--interactive` flag. Use tokio as the async runtime. For now, just print the detected platform and the requested tool name.
+- [ ] **Step 2:** Create a minimal `main.rs` that sets up a clap CLI with a single `install` subcommand accepting a tool name string, an `--interactive` flag, a `--dry-run` flag (show what would be done without doing it), and a `--verbose` flag (show full subprocess output). Use tokio as the async runtime. For now, just print the detected platform and the requested tool name.
 
 - [ ] **Step 3:** Verify it compiles with `cargo build` and runs with `cargo run -- install go`.
 
@@ -138,6 +142,7 @@ init.sh                        # POSIX bootstrap for fresh machines
 - `brew_install_cask(package) -> Result<()>` — install a brew cask (macOS only — casks not supported on Linuxbrew)
 - `ensure_brew() -> Result<()>` — check if brew is installed, install it if not. On macOS: handle both `/opt/homebrew` (ARM) and `/usr/local` (Intel) paths. On Debian/Fedora Linux: install Linuxbrew to `/home/linuxbrew/.linuxbrew`. On other distros: no-op or skip.
 - `has_brew() -> bool` — check if brew is available on PATH
+- `set_brew_failed()` / `is_brew_failed() -> bool` — track brew installation failure state so all subsequent installers skip brew and fall back to native package manager for the remainder of the run
 - `apt_add_gpg_key(url, keyring_path) -> Result<()>` — download a GPG key and install it for apt
 - `apt_add_repo(repo_line, list_file) -> Result<()>` — add an apt repository source file and run apt update
 - `needs_sudo_for_apt(platform) -> bool` — returns true if on Linux and not root
@@ -179,6 +184,8 @@ Build an orchestrator that provides:
 - `run_one(installer, platform) -> InstallResult` — run a single installer with pre-flight checks (skip if installed, fail if needs sudo and not root)
 - `run_all(platform) -> Vec<InstallResult>` — run all installers. Check sudo upfront for all tools before starting any work. If any need sudo and we're not root, report them all and exit. Sequential for now (parallelism in Task 14).
 - `print_summary(results)` — print a summary grouping results into installed/skipped/failed categories
+
+Support `--dry-run` mode: when set, each installer prints what it would do (e.g., `"Would install go via brew"` or `"Would download go1.22.0 from go.dev"`) without executing. The `--dry-run` flag is passed through the orchestrator to each installer. Support `--verbose` mode: when set, subprocess stdout/stderr is inherited (shown to the user) instead of captured.
 
 Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs all, unknown tool prints available list.
 
@@ -245,6 +252,7 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 **docker:**
 - Preferred: `brew install docker` (macOS, Debian-based, Fedora-based)
 - Fallback (no brew, Linux): add Docker GPG key (from `https://download.docker.com/linux/ubuntu/gpg`), add Docker apt repo, install `docker-ce docker-ce-cli containerd.io docker-compose-plugin`. Needs sudo. **Brew limitation:** Docker Desktop via brew cask is macOS-only; on Linux, the apt path installs the daemon properly with systemd integration, so this is one case where apt is actually better on Linux if Docker Engine (not Desktop) is the goal. Use judgement: brew for Docker Desktop on macOS, apt for Docker Engine on Linux.
+- On WSL: after installation, create the `docker` group if it doesn't exist and add the current user to it (replaces `generalScripts/fix_docker_insuficient_permissions_wsl.sh`). Print a note that the user needs to log out and back in for group changes to take effect.
 
 **azure:**
 - Preferred: `brew install azure-cli` (macOS, Debian-based, Fedora-based)
@@ -342,9 +350,15 @@ These 5 tools were recently added to the shell install scripts. They all follow 
 - Fallback: `apt install shellcheck`. Needs sudo.
 - Check: `shellcheck` on PATH.
 
-- [ ] **Step 1:** Implement all five installers.
+**nerd-font:**
+- macOS: `brew install --cask font-jetbrains-mono-nerd-font`
+- Linux: download `JetBrainsMono.tar.xz` from GitHub Releases API (`https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest`), extract to `~/.local/share/fonts/`, run `fc-cache -fv`. Does not need sudo.
+- Check: look for `JetBrainsMono` files in font directories (`~/.local/share/fonts/` on Linux, presence in `brew list` on macOS).
+- Replaces `generalScripts/installNerdFont.sh`.
+
+- [ ] **Step 1:** Implement all six installers.
 - [ ] **Step 2:** Register in mod.rs.
-- [ ] **Step 3:** Build and test `cargo run -- install all` — should list all 19 tools in the summary.
+- [ ] **Step 3:** Build and test `cargo run -- install all` — should list all 20 tools in the summary.
 - [ ] **Step 4:** Commit.
 
 ---
@@ -357,8 +371,8 @@ These 5 tools were recently added to the shell install scripts. They all follow 
 
 **Requirements:**
 - Define installation phases (e.g., via a method on the installer interface or a separate ordering function):
-  - Phase 0: prerequisites (`brew` on macOS, Debian-based, and Fedora-based systems; skip on Arch/NixOS/Alpine)
-  - Phase 1: all independent tools (go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck) — run in parallel
+  - Phase 0: prerequisites — `brew` (on macOS, Debian-based, and Fedora-based systems; skip on Arch/NixOS/Alpine) and base packages. Base packages on macOS via brew: `git`, `gnupg`. Base packages on Linux via apt: `build-essential`, `git`, `safe-rm`, `keychain`, `nala`, `gnupg`, `pkg-config`, `libssl-dev`, `zip`, `unzip`, `tar`, `gzip`, `net-tools`, `libfuse2`, `libnss3-tools`. Also runs `sudo add-apt-repository universe -y` on Linux. If brew installation fails in this phase, set the brew-failed flag so all Phase 1 installers fall back to native package manager.
+  - Phase 1: all independent tools (go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck, nerd-font) — run in parallel
   - Phase 2: JS tools — nvm first, then pnpm/bun/yarn in parallel
 - Use `tokio::task::spawn_blocking` since installers call subprocesses (blocking I/O)
 - Collect results from all phases into a single summary
@@ -392,8 +406,9 @@ These 5 tools were recently added to the shell install scripts. They all follow 
 
 **Requirements:**
 - Trigger on version tags (`v*`)
-- Build matrix for all 4 targets: `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
+- Build matrix for all 5 targets: `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
 - Install musl-tools on Ubuntu for the musl target
+- Use `cross` for the `aarch64-unknown-linux-gnu` target (cross-compilation from x86_64 runner)
 - Use `dtolnay/rust-toolchain@stable` with the appropriate target
 - Name output binaries as `bashc-<target>` (e.g., `bashc-aarch64-apple-darwin`)
 - Generate SHA256 checksum files per binary
@@ -433,7 +448,8 @@ These 5 tools were recently added to the shell install scripts. They all follow 
 - Otherwise fall back to the existing shell script dispatch.
 
 - [ ] **Step 1:** Update `run_my_install` function.
-- [ ] **Step 2:** Commit.
+- [ ] **Step 2:** Update `installAliases.sh` and `gScriptAliases.sh` if needed (the `myinstall` and `gscript` aliases should continue to work with the Rust binary via the updated dispatch functions).
+- [ ] **Step 3:** Commit.
 
 ---
 
@@ -441,7 +457,8 @@ These 5 tools were recently added to the shell install scripts. They all follow 
 
 - [ ] **Step 1:** Build release binary: `cd rust && cargo build --release`
 - [ ] **Step 2:** Test `bashc install go` — should install or skip with proper output.
-- [ ] **Step 3:** Test `bashc install all` — summary showing status of all 19 tools.
+- [ ] **Step 3:** Test `bashc install all` — summary showing status of all 20 tools.
+- [ ] **Step 3b:** Test `bashc install --dry-run all` — should list all tools and what would be done without executing.
 - [ ] **Step 4:** Test `bashc install --interactive` — shows checkboxes, installs selected.
 - [ ] **Step 5:** Test `bashc install foobar` — error with list of available tools.
 - [ ] **Step 6:** Commit, tag `v0.1.0`, push with tags. This triggers the GitHub Actions release workflow.

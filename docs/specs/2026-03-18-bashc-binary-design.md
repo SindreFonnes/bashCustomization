@@ -9,7 +9,7 @@ A single Rust binary that replaces all shell-based install scripts, general scri
 - A fresh machine can be fully set up by cloning the repo and running a single init command
 - Bulletproof and maintainable code that works for all supported environments
 - Explicit errors on unsupported platforms — no silent misbehavior
-- Replace all 19 fragile shell install scripts with proper error handling, arch detection, and checksum verification
+- Replace all 20 fragile shell install scripts with proper error handling, arch detection, and checksum verification
 
 ## Supported platforms
 
@@ -18,6 +18,7 @@ A single Rust binary that replaces all shell-based install scripts, general scri
 | `x86_64-apple-darwin` | Intel Mac |
 | `aarch64-apple-darwin` | Apple Silicon |
 | `x86_64-unknown-linux-gnu` | Linux x86_64 (glibc) |
+| `aarch64-unknown-linux-gnu` | Linux ARM64 (Raspberry Pi, ARM servers) |
 | `x86_64-unknown-linux-musl` | Linux x86_64 static (Alpine/WSL) |
 
 Any other platform produces a clear error showing what was detected and what is supported.
@@ -29,6 +30,8 @@ bashc install go               # install a specific tool
 bashc install all              # install everything (parallel where possible)
 bashc install base             # install platform base packages (replaces installStuff.sh)
 bashc install --interactive    # TUI menu for selecting tools
+bashc install --dry-run go     # show what would be done without doing it
+bashc install --verbose go     # show detailed output (subprocess stdout/stderr)
 bashc scripts git-config       # (Phase 2) interactive git configuration
 bashc scripts gpg-setup        # (Phase 2) GPG signing setup
 bashc platform                 # (Phase 3) output platform vars for eval
@@ -49,6 +52,8 @@ On **macOS, Debian-based, and Fedora-based** systems, **Homebrew is the preferre
 **Rationale:** Homebrew provides consistent package names, avoids distro-specific quirks (e.g., Debian renaming `bat` to `batcat`, `fd` to `fdfind`), doesn't require sudo, and gives more up-to-date versions. Using a single package manager across macOS and the most common Linux distros simplifies the installer logic.
 
 Each installer should: detect the distro family → if macOS/Debian/Fedora, check if brew is available → try `brew install` → fall back to native package manager if brew is unavailable or the package has a known brew limitation. On other distros, go straight to the native package manager.
+
+**Brew installation failure:** If `ensure_brew()` itself fails (e.g., network error, unsupported environment), all subsequent installers fall back to the native package manager for the remainder of the run. The failure is reported in the summary but does not abort the install. The brew installer is marked as failed, and a warning is printed: `"Homebrew installation failed — falling back to native package manager for remaining tools."`
 
 ## Sudo handling
 
@@ -89,11 +94,19 @@ Failed tools can be retried individually: bashc install <tool>
 
 1. **Pre-flight phase**: Check sudo requirements for all tools upfront. Detect already-installed tools and skip them.
 2. **Base packages**: Install Homebrew (if macOS, debian based or fedora based system) and platform base packages (git, gnupg via brew; build-essential, git, safe-rm, keychain, nala, gnupg, pkg-config, libssl-dev, zip, unzip, tar, gzip, net-tools, libfuse2, libnss3-tools via apt on Linux). This replaces `installStuff.sh`.
-3. **Parallel batch**: Install all independent tools concurrently — go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck.
+3. **Parallel batch**: Install all independent tools concurrently — go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck, nerd-font.
 4. **Sequential JS batch**: Install nvm first (provides node), then pnpm, bun, and yarn in parallel.
 5. **Report**: Print summary of successes, skips, and failures.
 
 Individual tool installs (`bashc install go`) run serially — parallelism only applies to `all`.
+
+## `--dry-run` and `--verbose` flags
+
+**`--dry-run`**: Shows what would be done without executing anything. Each installer prints its planned actions (e.g., `"Would install go via brew"` or `"Would download go1.22.0 from go.dev, verify SHA256, extract to /usr/local/go"`). Useful for verifying detection logic on machines that already have tools installed.
+
+**`--verbose`**: Shows full subprocess output (stdout/stderr inherited instead of captured). By default, subprocess output is captured and only shown on failure. With `--verbose`, all output streams through in real time.
+
+Both flags work with single-tool installs and `install all`.
 
 ## Installer trait
 
@@ -138,6 +151,7 @@ rust/
       fd.rs                    # fd (handles fdfind symlink on Debian/Ubuntu)
       eza.rs                   # eza (third-party apt repo on Linux)
       shellcheck.rs            # ShellCheck
+      nerd_font.rs             # JetBrains Mono Nerd Font
     common/
       mod.rs
       platform.rs              # OS/arch detection with explicit unsupported errors
@@ -168,7 +182,7 @@ rust/
 - **kubectl**: Download from dl.k8s.io, verify SHA256 checksum, install to /usr/local/bin. Detect arch properly.
 - **neovim**: brew on macOS, appimage on x86_64 Linux, apt or build from source on aarch64 Linux (appimage is x86-only)
 - **obsidian**: Use GitHub Releases API instead of HTML scraping. Download .deb on Linux, brew cask on macOS.
-- **docker**: brew on macOS. On Linux: add Docker GPG key, add apt repo, install docker-ce packages.
+- **docker**: brew on macOS. On Linux: add Docker GPG key, add apt repo, install docker-ce packages. On WSL: also create docker group and add current user (replaces `fix_docker_insuficient_permissions_wsl.sh`).
 - **azure**: brew on macOS. On Linux: add Microsoft GPG key, add apt repo, install azure-cli. Replaces dangerous `curl | sudo bash`.
 - **dotnet**: brew on macOS. On Linux: detect distro and version dynamically instead of hardcoding Ubuntu 22.04.
 
@@ -186,13 +200,14 @@ rust/
 - **fd**: brew install fd (all). On Linux apt package is `fd-find`, installs as `fdfind` — needs `~/.local/bin/fd` symlink
 - **eza**: brew install eza (all). On Linux: add GPG key + third-party apt repo (deb.gierens.de)
 - **shellcheck**: brew install shellcheck (all), apt install shellcheck (Linux)
+- **nerd-font**: `brew install --cask font-jetbrains-mono-nerd-font` (macOS). On Linux: download from GitHub Releases API (`ryanoasis/nerd-fonts`), extract to `~/.local/share/fonts/`, run `fc-cache -fv`. Does not need sudo.
 
 ## CI/CD: GitHub Actions release workflow
 
 Triggered on version tags (`v*`):
 
-1. Build for all 4 supported targets using `cross` or platform-native runners
-2. Name binaries by target: `bashc-x86_64-apple-darwin`, `bashc-aarch64-apple-darwin`, etc.
+1. Build for all 5 supported targets using `cross` or platform-native runners
+2. Name binaries by target: `bashc-x86_64-apple-darwin`, `bashc-aarch64-apple-darwin`, `bashc-aarch64-unknown-linux-gnu`, etc.
 3. Generate SHA256 checksums file (`checksums.txt`)
 4. Upload binaries + checksums as GitHub Release assets
 
