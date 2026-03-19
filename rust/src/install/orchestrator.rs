@@ -161,7 +161,7 @@ fn run_phase_parallel(
 
     let rt = tokio::runtime::Handle::current();
     let shared_config = Arc::new(ConfigSnapshot {
-        platform: config.platform,
+        platform: config.platform.clone(),
         dry_run: config.dry_run,
         verbose: config.verbose,
         interactive: config.interactive,
@@ -198,7 +198,7 @@ fn run_phase_parallel(
         let handle = rt.spawn_blocking(move || {
             println!("\n--- Installing {} ---", tool.name());
             let install_config = InstallConfig {
-                platform: task_config.platform,
+                platform: task_config.platform.clone(),
                 dry_run: task_config.dry_run,
                 verbose: task_config.verbose,
                 interactive: task_config.interactive,
