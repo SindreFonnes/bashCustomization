@@ -1,6 +1,23 @@
+mod azure;
+mod bat;
+mod brew;
+mod docker;
+mod dotnet;
+mod eza;
+mod fd;
+mod github;
 mod go;
+mod java;
+mod javascript;
 mod kubectl;
+mod nerd_font;
+mod neovim;
+mod obsidian;
+mod postgres;
+mod ripgrep;
 mod rust_lang;
+mod shellcheck;
+mod terraform;
 
 use anyhow::{Result, bail};
 
@@ -49,9 +66,29 @@ pub fn available_tool_names() -> Vec<String> {
 /// Return all registered installers.
 pub fn all_installers() -> Vec<Box<dyn Installer>> {
     vec![
+        // Phase 0: base
+        Box::new(brew::BrewInstaller),
+        // Phase 1: parallel tools
         Box::new(go::GoInstaller),
-        Box::new(kubectl::KubectlInstaller),
         Box::new(rust_lang::RustInstaller),
+        Box::new(docker::DockerInstaller),
+        Box::new(azure::AzureInstaller),
+        Box::new(dotnet::DotnetInstaller),
+        Box::new(neovim::NeovimInstaller),
+        Box::new(obsidian::ObsidianInstaller),
+        Box::new(java::JavaInstaller),
+        Box::new(github::GithubCliInstaller),
+        Box::new(terraform::TerraformInstaller),
+        Box::new(postgres::PostgresInstaller),
+        Box::new(kubectl::KubectlInstaller),
+        Box::new(ripgrep::RipgrepInstaller),
+        Box::new(bat::BatInstaller),
+        Box::new(fd::FdInstaller),
+        Box::new(eza::EzaInstaller),
+        Box::new(shellcheck::ShellcheckInstaller),
+        Box::new(nerd_font::NerdFontInstaller),
+        // Phase 2: JS sequential
+        Box::new(javascript::JavaScriptInstaller),
     ]
 }
 
