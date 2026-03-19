@@ -33,6 +33,75 @@ detect_arch() {
     esac
 }
 
+detect_distro() {
+    # On macOS there is no /etc/os-release
+    if [ "$(uname -s)" = "Darwin" ]; then
+        echo "macos"
+        return
+    fi
+
+    if [ ! -f /etc/os-release ]; then
+        echo "unknown"
+        return
+    fi
+
+    # Read ID and ID_LIKE from /etc/os-release
+    _id=""
+    _id_like=""
+    while IFS='=' read -r key value; do
+        # Strip surrounding quotes from value
+        value=$(printf '%s' "$value" | tr -d '"'"'")
+        case "$key" in
+            ID)      _id="$value" ;;
+            ID_LIKE) _id_like="$value" ;;
+        esac
+    done < /etc/os-release
+
+    # Match against known distro families; ID takes priority, then ID_LIKE
+    for _field in "$_id" "$_id_like"; do
+        case "$_field" in
+            *alpine*)  echo "alpine";  return ;;
+            *nixos*)   echo "nixos";   return ;;
+            *arch*)    echo "arch";    return ;;
+            *fedora*|*rhel*|*centos*|*suse*)
+                       echo "fedora";  return ;;
+            *debian*|*ubuntu*|*raspbian*)
+                       echo "debian";  return ;;
+        esac
+    done
+
+    echo "unknown"
+}
+
+# --- Privilege-escalation bootstrap (Alpine only) ---
+
+bootstrap_doas_alpine() {
+    # Only applies when running as root on Alpine with no sudo/doas/su available
+    if [ "$(detect_distro)" != "alpine" ]; then
+        return
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        return
+    fi
+
+    if command -v sudo >/dev/null 2>&1 || \
+       command -v doas >/dev/null 2>&1 || \
+       command -v su   >/dev/null 2>&1; then
+        return
+    fi
+
+    echo "Alpine: no sudo/doas/su found — installing doas via apk..."
+    apk add --no-cache doas
+
+    if [ ! -d /etc/doas.d ]; then
+        mkdir -p /etc/doas.d
+    fi
+
+    printf 'permit persist :wheel\n' > /etc/doas.d/doas.conf
+    echo "Alpine: created /etc/doas.d/doas.conf with 'permit persist :wheel'"
+}
+
 # --- Checksum verification ---
 
 verify_checksum() {
@@ -65,6 +134,10 @@ ARCH=$(detect_arch)
 TARGET="${ARCH}-${OS}"
 
 echo "Detected platform: ${TARGET}"
+
+# Bootstrap doas on Alpine when running as root with no privilege-escalation tool
+bootstrap_doas_alpine
+
 echo "Fetching latest release..."
 
 # Get the latest release download URL
