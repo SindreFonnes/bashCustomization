@@ -10,6 +10,13 @@ export MYINSTALL_SCRIPT_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/installScript
 source "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh";
 
 run_my_install () {
+    # Prefer bashc Rust binary when available
+    if command -v bashc &> /dev/null; then
+        bashc install "$1";
+        return $?;
+    fi
+
+    # Fall back to shell script dispatch
     $MYINSTALL_SCRIPT_LOCATION $1 $2;
 }
 
