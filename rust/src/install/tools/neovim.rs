@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::common::{command, download, package_manager, platform::{Arch, Platform}};
 use crate::install::InstallConfig;
@@ -12,8 +12,8 @@ impl crate::install::Installer for NeovimInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        // Needs sudo on aarch64 Linux without brew (apt install)
-        platform.is_linux()
+        // Needs sudo on aarch64 Debian Linux without brew (apt install)
+        platform.is_debian()
             && !package_manager::has_brew()
             && platform.arch == Arch::Aarch64
     }
@@ -45,7 +45,13 @@ impl crate::install::Installer for NeovimInstaller {
             return install_neovim_appimage();
         }
 
-        // aarch64 Linux: apt
+        // aarch64 Linux: apt (Debian only)
+        if !platform.is_debian() {
+            bail!(
+                "Neovim aarch64 install via apt is only supported on Debian-based distros. \
+                 On other distros, install brew first or install neovim manually."
+            );
+        }
         println!("Installing Neovim via apt...");
         package_manager::apt_install("neovim")
     }

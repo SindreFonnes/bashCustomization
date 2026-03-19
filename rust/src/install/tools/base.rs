@@ -12,7 +12,7 @@ impl crate::install::Installer for BaseInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -25,16 +25,22 @@ impl crate::install::Installer for BaseInstaller {
         if config.dry_run {
             if platform.is_mac() {
                 println!("  Would install base packages via brew: git, gnupg");
-            } else {
+            } else if platform.is_debian() {
                 println!("  Would install base packages via apt: build-essential, git, safe-rm, keychain, nala, gnupg, etc.");
+            } else if let Some(distro) = platform.distro() {
+                println!("  base packages not yet configured for {distro:?}");
             }
             return Ok(());
         }
 
         if platform.is_mac() {
             install_base_mac()?;
-        } else if platform.is_linux() {
+        } else if platform.is_debian() {
             install_base_linux()?;
+        } else if platform.is_linux() {
+            if let Some(distro) = platform.distro() {
+                println!("base packages not yet configured for {distro:?}");
+            }
         }
 
         Ok(())

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::common::{command, download, package_manager, platform::Platform, privilege};
@@ -24,7 +24,7 @@ impl crate::install::Installer for ObsidianInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() // dpkg install needs sudo
+        platform.is_debian() // dpkg/apt install needs sudo
     }
 
     fn is_installed(&self) -> bool {
@@ -48,6 +48,10 @@ impl crate::install::Installer for ObsidianInstaller {
         if platform.is_mac() {
             println!("Installing Obsidian via brew cask...");
             return package_manager::brew_install_cask("obsidian");
+        }
+
+        if !platform.is_debian() {
+            bail!("Obsidian .deb install only supported on Debian-based distros");
         }
 
         install_obsidian_deb(platform)
