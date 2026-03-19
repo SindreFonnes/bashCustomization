@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::common::{command, package_manager, platform::Platform};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct EzaInstaller;
 
 impl super::Installer for EzaInstaller {

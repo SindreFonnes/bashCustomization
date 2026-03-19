@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::common::{command, download, package_manager, platform::Platform};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct KubectlInstaller;
 
 impl super::Installer for KubectlInstaller {

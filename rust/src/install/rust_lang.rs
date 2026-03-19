@@ -4,6 +4,7 @@ use crate::common::command;
 use crate::common::platform::Platform;
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct RustInstaller;
 
 impl super::Installer for RustInstaller {

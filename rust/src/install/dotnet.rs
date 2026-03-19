@@ -3,6 +3,7 @@ use anyhow::{Result, bail};
 use crate::common::{command, package_manager, platform::Platform};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct DotnetInstaller;
 
 impl super::Installer for DotnetInstaller {

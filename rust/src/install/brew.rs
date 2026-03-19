@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::common::{package_manager, platform::Platform};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct BrewInstaller;
 
 impl super::Installer for BrewInstaller {

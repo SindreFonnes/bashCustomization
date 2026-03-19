@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::common::{command, download, package_manager, platform::{Arch, Platform}};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct NeovimInstaller;
 
 impl super::Installer for NeovimInstaller {

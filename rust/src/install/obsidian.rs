@@ -4,6 +4,7 @@ use serde::Deserialize;
 use crate::common::{command, download, package_manager, platform::Platform};
 use super::InstallConfig;
 
+#[derive(Debug, Clone, Copy)]
 pub struct ObsidianInstaller;
 
 #[derive(Deserialize)]

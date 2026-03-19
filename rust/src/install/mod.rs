@@ -43,65 +43,129 @@ pub enum InstallOutcome {
 
 /// Common interface for all tool installers.
 pub trait Installer: Send + Sync {
-    /// Tool name used as the CLI argument.
     fn name(&self) -> &str;
-
-    /// Whether this tool needs root on the given platform.
     fn needs_sudo(&self, platform: &Platform) -> bool;
-
-    /// Check if already installed.
     fn is_installed(&self) -> bool;
-
-    /// Perform the installation.
     fn install(&self, config: &InstallConfig) -> Result<()>;
-
-    /// Installation phase: 0 = base, 1 = parallel tools, 2 = JS sequential.
     fn phase(&self) -> u8 {
         1
     }
 }
 
+/// Enum of all known installers. Every variant is a zero-sized unit struct,
+/// so Tool is Copy and requires no heap allocation.
+#[derive(Debug, Clone, Copy)]
+pub enum Tool {
+    Brew(brew::BrewInstaller),
+    Base(base::BaseInstaller),
+    Go(go::GoInstaller),
+    Rust(rust_lang::RustInstaller),
+    Docker(docker::DockerInstaller),
+    Azure(azure::AzureInstaller),
+    Dotnet(dotnet::DotnetInstaller),
+    Neovim(neovim::NeovimInstaller),
+    Obsidian(obsidian::ObsidianInstaller),
+    Java(java::JavaInstaller),
+    Github(github::GithubCliInstaller),
+    Terraform(terraform::TerraformInstaller),
+    Postgres(postgres::PostgresInstaller),
+    Kubectl(kubectl::KubectlInstaller),
+    Ripgrep(ripgrep::RipgrepInstaller),
+    Bat(bat::BatInstaller),
+    Fd(fd::FdInstaller),
+    Eza(eza::EzaInstaller),
+    Shellcheck(shellcheck::ShellcheckInstaller),
+    NerdFont(nerd_font::NerdFontInstaller),
+    JavaScript(javascript::JavaScriptInstaller),
+}
+
+/// Delegate every Installer method to the inner struct.
+macro_rules! delegate {
+    ($self:ident, $method:ident $(, $arg:expr)*) => {
+        match $self {
+            Tool::Brew(i)       => i.$method($($arg),*),
+            Tool::Base(i)       => i.$method($($arg),*),
+            Tool::Go(i)         => i.$method($($arg),*),
+            Tool::Rust(i)       => i.$method($($arg),*),
+            Tool::Docker(i)     => i.$method($($arg),*),
+            Tool::Azure(i)      => i.$method($($arg),*),
+            Tool::Dotnet(i)     => i.$method($($arg),*),
+            Tool::Neovim(i)     => i.$method($($arg),*),
+            Tool::Obsidian(i)   => i.$method($($arg),*),
+            Tool::Java(i)       => i.$method($($arg),*),
+            Tool::Github(i)     => i.$method($($arg),*),
+            Tool::Terraform(i)  => i.$method($($arg),*),
+            Tool::Postgres(i)   => i.$method($($arg),*),
+            Tool::Kubectl(i)    => i.$method($($arg),*),
+            Tool::Ripgrep(i)    => i.$method($($arg),*),
+            Tool::Bat(i)        => i.$method($($arg),*),
+            Tool::Fd(i)         => i.$method($($arg),*),
+            Tool::Eza(i)        => i.$method($($arg),*),
+            Tool::Shellcheck(i) => i.$method($($arg),*),
+            Tool::NerdFont(i)   => i.$method($($arg),*),
+            Tool::JavaScript(i) => i.$method($($arg),*),
+        }
+    };
+}
+
+impl Installer for Tool {
+    fn name(&self) -> &str {
+        delegate!(self, name)
+    }
+
+    fn needs_sudo(&self, platform: &Platform) -> bool {
+        delegate!(self, needs_sudo, platform)
+    }
+
+    fn is_installed(&self) -> bool {
+        delegate!(self, is_installed)
+    }
+
+    fn install(&self, config: &InstallConfig) -> Result<()> {
+        delegate!(self, install, config)
+    }
+
+    fn phase(&self) -> u8 {
+        delegate!(self, phase)
+    }
+}
+
+/// All registered tools in installation order.
+pub const ALL_TOOLS: &[Tool] = &[
+    // Phase 0: base
+    Tool::Brew(brew::BrewInstaller),
+    Tool::Base(base::BaseInstaller),
+    // Phase 1: parallel tools
+    Tool::Go(go::GoInstaller),
+    Tool::Rust(rust_lang::RustInstaller),
+    Tool::Docker(docker::DockerInstaller),
+    Tool::Azure(azure::AzureInstaller),
+    Tool::Dotnet(dotnet::DotnetInstaller),
+    Tool::Neovim(neovim::NeovimInstaller),
+    Tool::Obsidian(obsidian::ObsidianInstaller),
+    Tool::Java(java::JavaInstaller),
+    Tool::Github(github::GithubCliInstaller),
+    Tool::Terraform(terraform::TerraformInstaller),
+    Tool::Postgres(postgres::PostgresInstaller),
+    Tool::Kubectl(kubectl::KubectlInstaller),
+    Tool::Ripgrep(ripgrep::RipgrepInstaller),
+    Tool::Bat(bat::BatInstaller),
+    Tool::Fd(fd::FdInstaller),
+    Tool::Eza(eza::EzaInstaller),
+    Tool::Shellcheck(shellcheck::ShellcheckInstaller),
+    Tool::NerdFont(nerd_font::NerdFontInstaller),
+    // Phase 2: JS sequential
+    Tool::JavaScript(javascript::JavaScriptInstaller),
+];
+
 /// Return list of all available tool names.
-pub fn available_tool_names() -> Vec<String> {
-    all_installers()
-        .iter()
-        .map(|i| i.name().to_string())
-        .collect()
+pub fn available_tool_names() -> Vec<&'static str> {
+    ALL_TOOLS.iter().map(|t| t.name()).collect()
 }
 
-/// Return all registered installers.
-pub fn all_installers() -> Vec<Box<dyn Installer>> {
-    vec![
-        // Phase 0: base
-        Box::new(brew::BrewInstaller),
-        Box::new(base::BaseInstaller),
-        // Phase 1: parallel tools
-        Box::new(go::GoInstaller),
-        Box::new(rust_lang::RustInstaller),
-        Box::new(docker::DockerInstaller),
-        Box::new(azure::AzureInstaller),
-        Box::new(dotnet::DotnetInstaller),
-        Box::new(neovim::NeovimInstaller),
-        Box::new(obsidian::ObsidianInstaller),
-        Box::new(java::JavaInstaller),
-        Box::new(github::GithubCliInstaller),
-        Box::new(terraform::TerraformInstaller),
-        Box::new(postgres::PostgresInstaller),
-        Box::new(kubectl::KubectlInstaller),
-        Box::new(ripgrep::RipgrepInstaller),
-        Box::new(bat::BatInstaller),
-        Box::new(fd::FdInstaller),
-        Box::new(eza::EzaInstaller),
-        Box::new(shellcheck::ShellcheckInstaller),
-        Box::new(nerd_font::NerdFontInstaller),
-        // Phase 2: JS sequential
-        Box::new(javascript::JavaScriptInstaller),
-    ]
-}
-
-/// Find an installer by name.
-pub fn find_installer(name: &str) -> Option<Box<dyn Installer>> {
-    all_installers().into_iter().find(|i| i.name() == name)
+/// Find a tool by name.
+pub fn find_tool(name: &str) -> Option<Tool> {
+    ALL_TOOLS.iter().copied().find(|t| t.name() == name)
 }
 
 /// Run a single installer by name.
@@ -110,15 +174,8 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
         return run_all(config);
     }
 
-    if name == "base" {
-        let installer = base::BaseInstaller;
-        let outcome = run_one(&installer, config);
-        print_single_outcome(installer.name(), &outcome);
-        return Ok(());
-    }
-
-    let installer = match find_installer(name) {
-        Some(i) => i,
+    let tool = match find_tool(name) {
+        Some(t) => t,
         None => {
             println!("Unknown tool: {name}");
             println!("\nAvailable tools:");
@@ -129,31 +186,31 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
         }
     };
 
-    let outcome = run_one(installer.as_ref(), config);
-    print_single_outcome(installer.name(), &outcome);
+    let outcome = run_one(&tool, config);
+    print_single_outcome(tool.name(), &outcome);
     Ok(())
 }
 
 /// Run a single installer with pre-flight checks.
-pub fn run_one(installer: &dyn Installer, config: &InstallConfig) -> InstallOutcome {
-    if installer.is_installed() {
+pub fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
+    if tool.is_installed() {
         return InstallOutcome::Skipped("already installed".to_string());
     }
 
-    if installer.needs_sudo(&config.platform) && !crate::common::command::is_root() {
+    if tool.needs_sudo(&config.platform) && !crate::common::command::is_root() {
         return InstallOutcome::Failed(format!(
             "requires sudo — re-run with: sudo bashc install {}",
-            installer.name()
+            tool.name()
         ));
     }
 
     if config.dry_run {
-        println!("Would install {}", installer.name());
+        println!("Would install {}", tool.name());
         return InstallOutcome::Skipped("dry-run".to_string());
     }
 
-    println!("\n--- Installing {} ---", installer.name());
-    match installer.install(config) {
+    println!("\n--- Installing {} ---", tool.name());
+    match tool.install(config) {
         Ok(()) => InstallOutcome::Installed,
         Err(e) => InstallOutcome::Failed(format!("{e:#}")),
     }
@@ -161,19 +218,12 @@ pub fn run_one(installer: &dyn Installer, config: &InstallConfig) -> InstallOutc
 
 /// Run all installers with phased parallel execution.
 pub fn run_all(config: &InstallConfig) -> Result<()> {
-    let installers = all_installers();
-
-    if installers.is_empty() {
-        println!("No installers registered yet.");
-        return Ok(());
-    }
-
     // Pre-flight: check sudo requirements
     if !config.dry_run {
-        let needs_sudo: Vec<&str> = installers
+        let needs_sudo: Vec<&str> = ALL_TOOLS
             .iter()
-            .filter(|i| i.needs_sudo(&config.platform) && !crate::common::command::is_root())
-            .map(|i| i.name())
+            .filter(|t| t.needs_sudo(&config.platform) && !crate::common::command::is_root())
+            .map(|t| t.name())
             .collect();
 
         if !needs_sudo.is_empty() {
@@ -184,19 +234,19 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
         }
     }
 
-    // Group installers by phase
-    let phase0: Vec<_> = installers.iter().filter(|i| i.phase() == 0).collect();
-    let phase1: Vec<_> = installers.iter().filter(|i| i.phase() == 1).collect();
-    let phase2: Vec<_> = installers.iter().filter(|i| i.phase() == 2).collect();
+    // Group by phase
+    let phase0: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 0).collect();
+    let phase1: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 1).collect();
+    let phase2: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 2).collect();
 
     let mut results: Vec<(String, InstallOutcome)> = Vec::new();
 
     // Phase 0: base packages (sequential — brew first, then apt base)
     if !phase0.is_empty() {
         println!("=== Phase 0: Base packages ===");
-        for installer in &phase0 {
-            let outcome = run_one(installer.as_ref(), config);
-            results.push((installer.name().to_string(), outcome));
+        for tool in &phase0 {
+            let outcome = run_one(tool, config);
+            results.push((tool.name().to_string(), outcome));
         }
     }
 
@@ -210,9 +260,9 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     // Phase 2: JS tools (sequential — nvm first, then rest)
     if !phase2.is_empty() {
         println!("\n=== Phase 2: JavaScript tools ===");
-        for installer in &phase2 {
-            let outcome = run_one(installer.as_ref(), config);
-            results.push((installer.name().to_string(), outcome));
+        for tool in &phase2 {
+            let outcome = run_one(tool, config);
+            results.push((tool.name().to_string(), outcome));
         }
     }
 
@@ -220,25 +270,24 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     Ok(())
 }
 
-/// Run a set of installers in parallel using tokio::task::spawn_blocking.
+/// Run a set of tools in parallel using tokio::task::spawn_blocking.
 fn run_phase_parallel(
-    installers: &[&Box<dyn Installer>],
+    tools: &[Tool],
     config: &InstallConfig,
 ) -> Vec<(String, InstallOutcome)> {
-    // For dry-run, just run sequentially (no real work to parallelize)
+    // For dry-run, just run sequentially
     if config.dry_run {
-        return installers
+        return tools
             .iter()
-            .map(|i| {
-                let outcome = run_one(i.as_ref(), config);
-                (i.name().to_string(), outcome)
+            .map(|t| {
+                let outcome = run_one(t, config);
+                (t.name().to_string(), outcome)
             })
             .collect();
     }
 
-    // Use tokio runtime for parallel execution
     let rt = tokio::runtime::Handle::current();
-    let config = Arc::new(InstallConfigSnapshot {
+    let shared_config = Arc::new(ConfigSnapshot {
         platform: config.platform,
         dry_run: config.dry_run,
         verbose: config.verbose,
@@ -247,11 +296,11 @@ fn run_phase_parallel(
 
     let mut handles = Vec::new();
 
-    for installer in installers {
-        let name = installer.name().to_string();
+    for &tool in tools {
+        let name = tool.name().to_string();
 
         // Pre-flight checks before spawning
-        if installer.is_installed() {
+        if tool.is_installed() {
             handles.push((
                 name,
                 None,
@@ -260,7 +309,7 @@ fn run_phase_parallel(
             continue;
         }
 
-        if installer.needs_sudo(&config.platform) && !crate::common::command::is_root() {
+        if tool.needs_sudo(&shared_config.platform) && !crate::common::command::is_root() {
             handles.push((
                 name.clone(),
                 None,
@@ -271,19 +320,17 @@ fn run_phase_parallel(
             continue;
         }
 
-        // Create a new config for the spawned task
-        let task_config = Arc::clone(&config);
-        let installer_ref = find_installer(&name).unwrap();
-
+        let task_config = Arc::clone(&shared_config);
+        // Tool is Copy — no Box needed, just move the value into the closure
         let handle = rt.spawn_blocking(move || {
-            println!("\n--- Installing {} ---", installer_ref.name());
+            println!("\n--- Installing {} ---", tool.name());
             let install_config = InstallConfig {
                 platform: task_config.platform,
                 dry_run: task_config.dry_run,
                 verbose: task_config.verbose,
                 interactive: task_config.interactive,
             };
-            match installer_ref.install(&install_config) {
+            match tool.install(&install_config) {
                 Ok(()) => InstallOutcome::Installed,
                 Err(e) => InstallOutcome::Failed(format!("{e:#}")),
             }
@@ -309,7 +356,7 @@ fn run_phase_parallel(
 }
 
 /// Snapshot of InstallConfig that can be shared across threads.
-struct InstallConfigSnapshot {
+struct ConfigSnapshot {
     platform: Platform,
     dry_run: bool,
     verbose: bool,
@@ -318,13 +365,7 @@ struct InstallConfigSnapshot {
 
 /// Interactive mode: show multi-select menu.
 pub fn run_interactive(config: &InstallConfig) -> Result<()> {
-    let installers = all_installers();
-    if installers.is_empty() {
-        println!("No installers registered yet.");
-        return Ok(());
-    }
-
-    let names: Vec<&str> = installers.iter().map(|i| i.name()).collect();
+    let names: Vec<&str> = ALL_TOOLS.iter().map(|t| t.name()).collect();
     let selections = dialoguer::MultiSelect::new()
         .with_prompt("Select tools to install")
         .items(&names)
@@ -337,9 +378,9 @@ pub fn run_interactive(config: &InstallConfig) -> Result<()> {
 
     let mut results: Vec<(String, InstallOutcome)> = Vec::new();
     for idx in selections {
-        let installer = &installers[idx];
-        let outcome = run_one(installer.as_ref(), config);
-        results.push((installer.name().to_string(), outcome));
+        let tool = &ALL_TOOLS[idx];
+        let outcome = run_one(tool, config);
+        results.push((tool.name().to_string(), outcome));
     }
 
     print_summary(&results);
@@ -400,21 +441,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn find_installer_known() {
-        assert!(find_installer("go").is_some());
-        assert!(find_installer("rust").is_some());
-        assert!(find_installer("kubectl").is_some());
+    fn find_tool_known() {
+        assert!(find_tool("go").is_some());
+        assert!(find_tool("rust").is_some());
+        assert!(find_tool("kubectl").is_some());
     }
 
     #[test]
-    fn find_installer_unknown() {
-        assert!(find_installer("nonexistent").is_none());
+    fn find_tool_unknown() {
+        assert!(find_tool("nonexistent").is_none());
     }
 
     #[test]
-    fn all_installers_has_20_plus_base() {
-        let installers = all_installers();
+    fn all_tools_count() {
         // 20 tools + base = 21
-        assert_eq!(installers.len(), 21, "expected 21 installers (20 tools + base)");
+        assert_eq!(ALL_TOOLS.len(), 21, "expected 21 tools (20 + base)");
+    }
+
+    #[test]
+    fn tool_is_copy() {
+        // Compile-time proof that Tool is Copy
+        let t = ALL_TOOLS[0];
+        let _t2 = t;
+        let _t3 = t; // still valid — t was copied, not moved
     }
 }
