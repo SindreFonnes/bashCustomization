@@ -12,7 +12,7 @@ impl crate::install::Installer for DotnetInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -40,24 +40,19 @@ impl crate::install::Installer for DotnetInstaller {
     }
 }
 
-fn install_dotnet_apt(_platform: &Platform) -> Result<()> {
+fn install_dotnet_apt(platform: &Platform) -> Result<()> {
+    if !platform.is_debian() {
+        let distro = platform.distro();
+        bail!(
+            "third-party repo setup for dotnet not yet supported on {:?}",
+            distro
+        );
+    }
+
     // Detect distro and version from /etc/os-release
     let (distro_id, version_id) = read_os_release()?;
 
     println!("Detected distro: {distro_id} {version_id}");
-
-    // Microsoft supports Ubuntu and Debian primarily
-    let supported = matches!(
-        distro_id.as_str(),
-        "ubuntu" | "debian"
-    );
-
-    if !supported {
-        bail!(
-            ".NET SDK apt installation is only supported on Ubuntu and Debian. \
-             Detected: {distro_id} {version_id}. Consider using brew or manual installation."
-        );
-    }
 
     println!("Adding Microsoft GPG key...");
     package_manager::apt_add_gpg_key(

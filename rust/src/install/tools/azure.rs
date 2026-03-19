@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::common::{command, package_manager, platform::Platform};
 use crate::install::InstallConfig;
@@ -12,7 +12,7 @@ impl crate::install::Installer for AzureInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -41,6 +41,14 @@ impl crate::install::Installer for AzureInstaller {
 }
 
 fn install_azure_apt(platform: &Platform) -> Result<()> {
+    if !platform.is_debian() {
+        let distro = platform.distro();
+        bail!(
+            "third-party repo setup for azure not yet supported on {:?}",
+            distro
+        );
+    }
+
     println!("Adding Microsoft GPG key...");
     package_manager::apt_add_gpg_key(
         "https://packages.microsoft.com/keys/microsoft.asc",

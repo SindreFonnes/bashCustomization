@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::common::{command, package_manager, platform::Platform};
 use crate::install::InstallConfig;
@@ -12,7 +12,7 @@ impl crate::install::Installer for TerraformInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -20,6 +20,8 @@ impl crate::install::Installer for TerraformInstaller {
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
+        let platform = &config.platform;
+
         if config.dry_run {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install terraform via brew");
@@ -34,11 +36,19 @@ impl crate::install::Installer for TerraformInstaller {
             return package_manager::brew_install("terraform");
         }
 
-        install_terraform_apt()
+        install_terraform_apt(platform)
     }
 }
 
-fn install_terraform_apt() -> Result<()> {
+fn install_terraform_apt(platform: &Platform) -> Result<()> {
+    if !platform.is_debian() {
+        let distro = platform.distro();
+        bail!(
+            "third-party repo setup for terraform not yet supported on {:?}",
+            distro
+        );
+    }
+
     println!("Adding HashiCorp GPG key...");
     package_manager::apt_add_gpg_key(
         "https://apt.releases.hashicorp.com/gpg",

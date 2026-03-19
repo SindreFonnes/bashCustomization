@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::common::{command, package_manager, platform::Platform};
 use crate::install::InstallConfig;
@@ -12,7 +12,7 @@ impl crate::install::Installer for EzaInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -20,6 +20,8 @@ impl crate::install::Installer for EzaInstaller {
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
+        let platform = &config.platform;
+
         if config.dry_run {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install eza via brew");
@@ -34,11 +36,19 @@ impl crate::install::Installer for EzaInstaller {
             return package_manager::brew_install("eza");
         }
 
-        install_eza_apt()
+        install_eza_apt(platform)
     }
 }
 
-fn install_eza_apt() -> Result<()> {
+fn install_eza_apt(platform: &Platform) -> Result<()> {
+    if !platform.is_debian() {
+        let distro = platform.distro();
+        bail!(
+            "third-party repo setup for eza not yet supported on {:?}",
+            distro
+        );
+    }
+
     println!("Adding eza GPG key...");
     package_manager::apt_add_gpg_key(
         "https://raw.githubusercontent.com/eza-community/eza/main/deb.asc",

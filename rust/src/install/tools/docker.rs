@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::common::{command, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
@@ -12,8 +12,10 @@ impl crate::install::Installer for DockerInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        // On macOS, brew doesn't need sudo. On Linux, apt needs sudo.
-        platform.is_linux() && !package_manager::has_brew()
+        // On macOS, brew doesn't need sudo. On Debian Linux, apt needs sudo.
+        // NixOS, Arch, Alpine, and other distros without brew will error rather
+        // than using apt, so sudo is not needed for them.
+        platform.is_debian() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {
@@ -45,6 +47,14 @@ impl crate::install::Installer for DockerInstaller {
 }
 
 fn install_docker_apt(platform: &Platform) -> Result<()> {
+    if !platform.is_debian() {
+        let distro = platform.distro();
+        bail!(
+            "third-party repo setup for docker not yet supported on {:?}",
+            distro
+        );
+    }
+
     println!("Adding Docker GPG key...");
     package_manager::apt_add_gpg_key(
         "https://download.docker.com/linux/ubuntu/gpg",
