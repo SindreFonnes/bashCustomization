@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use bashc_e2e::container::TestContainer;
 use bashc_e2e::distro::{docker_dir, repo_root};
 use bollard::Docker;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell};
 
 const BUILDER_IMAGE_TAG: &str = "bashc-builder";
 const UBUNTU_IMAGE_TAG: &str = "bashc-test-ubuntu";
@@ -16,6 +16,43 @@ const CONTAINER_NAME: &str = "bashc-e2e-ubuntu";
 /// (stopping it mid-run would break concurrent tests). It gets cleaned up
 /// at the start of the next run.
 static CONTAINER: OnceCell<TestContainer> = OnceCell::const_new();
+
+/// Global mutex that serialises all apt-get install invocations.
+///
+/// apt holds exclusive file locks on `/var/lib/dpkg/lock-frontend` and
+/// `/var/lib/apt/lists/lock`. If two `bashc install` commands run at the same
+/// time inside the shared container they will race on those locks and one will
+/// fail with exit code 100. Holding this mutex around every install call
+/// guarantees at most one apt operation is in-flight at any moment.
+static APT_INSTALL_LOCK: Mutex<()> = Mutex::const_new(());
+
+/// Shared apt-get update guard — the container init already warms the apt
+/// cache, so this is a no-op after init. Kept for API symmetry with the
+/// Debian setup so fast_installs.rs can call `setup::ensure_apt_updated()`
+/// without branching on distro.
+static APT_UPDATED: OnceCell<()> = OnceCell::const_new();
+
+/// Acquire the global apt install lock and return the guard.
+///
+/// Hold the returned guard for the duration of any `apt-get install` or
+/// `bashc install` call to prevent concurrent apt invocations inside the
+/// shared container.
+pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    APT_INSTALL_LOCK.lock().await
+}
+
+/// Ensure the apt cache has been warmed. The Ubuntu container init already
+/// runs `apt-get update`, so this function just ensures the container is
+/// started (which triggers the init) and marks the update as complete.
+pub async fn ensure_apt_updated() {
+    APT_UPDATED
+        .get_or_init(|| async {
+            // Calling get_container() ensures init_container() has run, which
+            // already executed apt-get update as part of container setup.
+            get_container().await;
+        })
+        .await;
+}
 
 /// Get or initialize the shared Ubuntu test container.
 pub async fn get_container() -> &'static TestContainer {

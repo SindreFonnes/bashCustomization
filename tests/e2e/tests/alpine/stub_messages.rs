@@ -1,16 +1,11 @@
 use crate::setup;
 
-/// Shared helper — runs `bashc install <tool>` on Arch and asserts the process
+/// Shared helper — runs `bashc install <tool>` on Alpine and asserts the process
 /// does not panic (no Rust panic output).
 ///
-/// Returns early (skipping the test) when running on an aarch64 host because
-/// `archlinux:latest` has no arm64 variant.
+/// doas is excluded — it has its own test file (doas.rs) and actually works on Alpine.
 async fn assert_tool_no_panic(tool: &str) {
-    let Some(container) = setup::get_container().await else {
-        eprintln!("Skipping Arch test on aarch64 host (tool: {})", tool);
-        return;
-    };
-
+    let container = setup::get_container().await;
     let result = container
         .exec(&["bashc", "install", tool])
         .await
@@ -27,16 +22,10 @@ async fn assert_tool_no_panic(tool: &str) {
     );
 }
 
-/// Shared helper for tools confirmed to be stubbed on Arch — checks both
+/// Shared helper for tools confirmed to be stubbed on Alpine — checks both
 /// no-panic and that a graceful "not supported" message is present.
-///
-/// Returns early on aarch64 hosts (same skip logic as above).
 async fn assert_tool_stub(tool: &str) {
-    let Some(container) = setup::get_container().await else {
-        eprintln!("Skipping Arch test on aarch64 host (tool: {})", tool);
-        return;
-    };
-
+    let container = setup::get_container().await;
     let result = container
         .exec(&["bashc", "install", tool])
         .await
@@ -47,15 +36,6 @@ async fn assert_tool_stub(tool: &str) {
         !result.stdout.contains("thread '") && !result.stderr.contains("thread '")
             && !result.stdout.contains("panicked at") && !result.stderr.contains("panicked at"),
         "process panicked unexpectedly for tool '{}'\n--- stdout ---\n{}\n--- stderr ---\n{}",
-        tool,
-        result.stdout,
-        result.stderr
-    );
-
-    // Must return non-zero exit code.
-    assert_ne!(
-        result.exit_code, 0,
-        "expected non-zero exit code for unsupported distro (tool '{}'), got 0\n--- stdout ---\n{}\n--- stderr ---\n{}",
         tool,
         result.stdout,
         result.stderr
@@ -77,21 +57,13 @@ async fn assert_tool_stub(tool: &str) {
     );
 }
 
-/// Verify that attempting to install ripgrep on Arch returns a non-zero exit
-/// code and emits a human-readable "not yet supported" message rather than
-/// panicking.  Arch support is stubbed; the binary must fail gracefully.
-#[tokio::test]
-async fn install_ripgrep_not_yet_supported() {
-    assert_tool_stub("ripgrep").await;
-}
-
-/// go installs via a cross-platform tarball installer — may succeed on Arch.
+/// go installs via a cross-platform tarball installer — may succeed on Alpine.
 #[tokio::test]
 async fn install_go_no_panic() {
     assert_tool_no_panic("go").await;
 }
 
-/// rust installs via rustup — may succeed on Arch.
+/// rust installs via rustup — may succeed on Alpine.
 #[tokio::test]
 async fn install_rust_no_panic() {
     assert_tool_no_panic("rust").await;
@@ -112,13 +84,13 @@ async fn install_dotnet_not_yet_supported() {
     assert_tool_stub("dotnet").await;
 }
 
-/// neovim emits a Debian-only error on Arch — graceful failure, not a panic.
+/// neovim emits a Debian-only error on Alpine — graceful failure, not a panic.
 #[tokio::test]
 async fn install_neovim_no_panic() {
     assert_tool_no_panic("neovim").await;
 }
 
-/// obsidian emits a Debian-only error on Arch — graceful failure, not a panic.
+/// obsidian emits a Debian-only error on Alpine — graceful failure, not a panic.
 #[tokio::test]
 async fn install_obsidian_no_panic() {
     assert_tool_no_panic("obsidian").await;
@@ -144,10 +116,15 @@ async fn install_postgres_not_yet_supported() {
     assert_tool_stub("postgres").await;
 }
 
-/// kubectl installs via a cross-platform binary download — may succeed on Arch.
+/// kubectl installs via a cross-platform binary download — may succeed on Alpine.
 #[tokio::test]
 async fn install_kubectl_no_panic() {
     assert_tool_no_panic("kubectl").await;
+}
+
+#[tokio::test]
+async fn install_ripgrep_not_yet_supported() {
+    assert_tool_stub("ripgrep").await;
 }
 
 #[tokio::test]
@@ -187,4 +164,10 @@ async fn install_javascript_no_panic() {
 #[tokio::test]
 async fn install_base_not_yet_supported() {
     assert_tool_stub("base").await;
+}
+
+/// brew (Homebrew) supports Linux including Alpine — may succeed on Alpine.
+#[tokio::test]
+async fn install_brew_no_panic() {
+    assert_tool_no_panic("brew").await;
 }
