@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::common::{command, download, package_manager, platform::Platform};
+use crate::common::{command, download, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -72,13 +72,8 @@ fn install_kubectl_direct(platform: &Platform) -> Result<()> {
 
     // Install to /usr/local/bin
     let dest = "/usr/local/bin/kubectl";
-    if command::is_root() {
-        command::run_visible("cp", &[binary_path.to_str().unwrap(), dest])?;
-        command::run_visible("chmod", &["+x", dest])?;
-    } else {
-        command::run_sudo("cp", &[binary_path.to_str().unwrap(), dest])?;
-        command::run_sudo("chmod", &["+x", dest])?;
-    }
+    privilege::run_privileged("cp", &[binary_path.to_str().unwrap(), dest])?;
+    privilege::run_privileged("chmod", &["+x", dest])?;
 
     let _ = std::fs::remove_file(&binary_path);
     println!("kubectl {version} installed to {dest}");

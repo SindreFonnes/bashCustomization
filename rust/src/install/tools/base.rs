@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::common::{command, package_manager, platform::Platform};
+use crate::common::{package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -58,11 +58,7 @@ fn install_base_mac() -> Result<()> {
 
 fn install_base_linux() -> Result<()> {
     println!("Adding universe repository...");
-    if command::is_root() {
-        let _ = command::run_visible("add-apt-repository", &["universe", "-y"]);
-    } else {
-        let _ = command::run_sudo("add-apt-repository", &["universe", "-y"]);
-    }
+    let _ = privilege::run_privileged("add-apt-repository", &["universe", "-y"]);
 
     let packages = [
         "build-essential",
@@ -84,21 +80,13 @@ fn install_base_linux() -> Result<()> {
 
     println!("Installing base packages via apt...");
 
-    if command::is_root() {
-        command::run_visible("apt-get", &["update"])?;
-    } else {
-        command::run_sudo("apt-get", &["update"])?;
-    }
+    privilege::run_privileged("apt-get", &["update"])?;
 
     let mut args = vec!["install", "-y"];
     let pkg_refs: Vec<&str> = packages.iter().copied().collect();
     args.extend_from_slice(&pkg_refs);
 
-    if command::is_root() {
-        command::run_visible("apt-get", &args)?;
-    } else {
-        command::run_sudo("apt-get", &args)?;
-    }
+    privilege::run_privileged("apt-get", &args)?;
 
     println!("Base packages installed");
     Ok(())

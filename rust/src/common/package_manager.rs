@@ -4,6 +4,7 @@ use anyhow::{Result, bail};
 
 use super::command;
 use super::platform::Platform;
+use super::privilege;
 
 static BREW_FAILED: AtomicBool = AtomicBool::new(false);
 
@@ -111,11 +112,7 @@ pub fn install(platform: &Platform, package: &str) -> Result<()> {
 
 /// Install a package via apt.
 pub fn apt_install(package: &str) -> Result<()> {
-    if command::is_root() {
-        command::run_visible("apt-get", &["install", "-y", package])
-    } else {
-        command::run_sudo("apt-get", &["install", "-y", package])
-    }
+    privilege::run_privileged("apt-get", &["install", "-y", package])
 }
 
 /// Download a GPG key and install it for apt.
@@ -127,11 +124,7 @@ pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
     )?;
 
     // Ensure /etc/apt/keyrings exists
-    if command::is_root() {
-        command::run_visible("mkdir", &["-p", "/etc/apt/keyrings"])?;
-    } else {
-        command::run_sudo("mkdir", &["-p", "/etc/apt/keyrings"])?;
-    }
+    privilege::run_privileged("mkdir", &["-p", "/etc/apt/keyrings"])?;
 
     // Pipe key through gpg --dearmor to keyring_path
     let cmd = format!(
@@ -140,24 +133,15 @@ pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
         keyring_path
     );
 
-    if command::is_root() {
-        command::run_visible("bash", &["-c", &cmd])
-    } else {
-        command::run_sudo("bash", &["-c", &cmd])
-    }
+    privilege::run_privileged("bash", &["-c", &cmd])
 }
 
 /// Add an apt repository source file and run apt update.
 pub fn apt_add_repo(repo_line: &str, list_file: &str) -> Result<()> {
     let cmd = format!("echo '{}' | tee {}", repo_line, list_file);
 
-    if command::is_root() {
-        command::run_visible("bash", &["-c", &cmd])?;
-        command::run_visible("apt-get", &["update"])
-    } else {
-        command::run_sudo("bash", &["-c", &cmd])?;
-        command::run_sudo("apt-get", &["update"])
-    }
+    privilege::run_privileged("bash", &["-c", &cmd])?;
+    privilege::run_privileged("apt-get", &["update"])
 }
 
 /// Returns true if on Linux and not root (needs sudo for apt).

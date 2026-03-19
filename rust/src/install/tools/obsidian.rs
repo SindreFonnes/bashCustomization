@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::common::{command, download, package_manager, platform::Platform};
+use crate::common::{command, download, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -82,11 +82,7 @@ fn install_obsidian_deb(platform: &Platform) -> Result<()> {
 
     println!("Installing {}...", deb_asset.name);
     let deb_str = deb_path.to_str().unwrap();
-    if command::is_root() {
-        command::run_visible("apt-get", &["install", "-y", deb_str])?;
-    } else {
-        command::run_sudo("apt-get", &["install", "-y", deb_str])?;
-    }
+    privilege::run_privileged("apt-get", &["install", "-y", deb_str])?;
 
     let _ = std::fs::remove_file(&deb_path);
     println!("Obsidian installed");

@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::common::{command, package_manager, platform::Platform};
+use crate::common::{command, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -74,22 +74,17 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
     println!("Installing Docker Engine...");
     let packages = "docker-ce docker-ce-cli containerd.io docker-compose-plugin";
-    if command::is_root() {
-        command::run_visible("apt-get", &["install", "-y",
-            "docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"])?;
-    } else {
-        command::run_sudo("apt-get", &["install", "-y",
-            "docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"])?;
-    }
+    privilege::run_privileged("apt-get", &["install", "-y",
+        "docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"])?;
 
     // WSL-specific: create docker group and add user
     if platform.is_wsl() {
         println!("Setting up Docker group for WSL...");
         // Create docker group if it doesn't exist
-        let _ = command::run("bash", &["-c", "getent group docker || sudo groupadd docker"]);
+        let _ = command::run("bash", &["-c", "getent group docker || groupadd docker"]);
         // Add current user to docker group
         if let Ok(user) = std::env::var("USER") {
-            let _ = command::run_sudo("usermod", &["-aG", "docker", &user]);
+            let _ = privilege::run_privileged("usermod", &["-aG", "docker", &user]);
             println!("Added {user} to docker group. Log out and back in for changes to take effect.");
         }
     }

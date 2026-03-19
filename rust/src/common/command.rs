@@ -44,13 +44,6 @@ pub fn exists(program: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Run a command prefixed with sudo, inheriting stdio.
-pub fn run_sudo(program: &str, args: &[&str]) -> Result<()> {
-    let mut sudo_args = vec![program];
-    sudo_args.extend_from_slice(args);
-    run_visible("sudo", &sudo_args)
-}
-
 /// Check if the current process is running as root.
 pub fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }

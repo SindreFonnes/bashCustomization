@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::common::{command, download, package_manager, platform::Platform};
+use crate::common::{command, download, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -100,26 +100,15 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     // Remove existing Go installation if any
     let go_dir = std::path::Path::new("/usr/local/go");
     if go_dir.exists() {
-        if command::is_root() {
-            command::run_visible("rm", &["-rf", "/usr/local/go"])?;
-        } else {
-            command::run_sudo("rm", &["-rf", "/usr/local/go"])?;
-        }
+        privilege::run_privileged("rm", &["-rf", "/usr/local/go"])?;
     }
 
     // Extract
     println!("Extracting to /usr/local/go...");
-    if command::is_root() {
-        command::run_visible(
-            "tar",
-            &["-C", "/usr/local", "-xzf", archive_path.to_str().unwrap()],
-        )?;
-    } else {
-        command::run_sudo(
-            "tar",
-            &["-C", "/usr/local", "-xzf", archive_path.to_str().unwrap()],
-        )?;
-    }
+    privilege::run_privileged(
+        "tar",
+        &["-C", "/usr/local", "-xzf", archive_path.to_str().unwrap()],
+    )?;
 
     // Clean up
     let _ = std::fs::remove_file(&archive_path);
