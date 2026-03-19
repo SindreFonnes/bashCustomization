@@ -35,6 +35,11 @@ determine_install_script_to_use () {
         local POSTGRES_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/postgres/installPostgres.sh;
 		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
         local OBSIDIAN_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/obsidian/installObsidian.sh;
+        local RIPGREP_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/ripgrep/installRipgrep.sh;
+        local BAT_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/bat/installBat.sh;
+        local FD_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/fd/installFd.sh;
+        local EZA_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/eza/installEza.sh;
+        local SHELLCHECK_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/shellcheck/installShellcheck.sh;
 
         local input=($@);
 
@@ -92,7 +97,27 @@ determine_install_script_to_use () {
                 run_install_script "$OBSIDIAN_INSTALL_LOCATION"
                 ;;
 
-            "${input[16]}" | "15")
+            "${input[16]}" | "15" | "rg")
+                run_install_script "$RIPGREP_INSTALL_LOCATION"
+                ;;
+
+            "${input[17]}" | "16")
+                run_install_script "$BAT_INSTALL_LOCATION"
+                ;;
+
+            "${input[18]}" | "17")
+                run_install_script "$FD_INSTALL_LOCATION"
+                ;;
+
+            "${input[19]}" | "18")
+                run_install_script "$EZA_INSTALL_LOCATION"
+                ;;
+
+            "${input[20]}" | "19")
+                run_install_script "$SHELLCHECK_INSTALL_LOCATION"
+                ;;
+
+            "${input[21]}" | "20")
                 echo "Running all scripts sequentialy..." &&
                 run_install_script "$GO_INSTALL_LOCATION" &&
 
@@ -100,7 +125,7 @@ determine_install_script_to_use () {
 
                 run_install_script "$RUST_INSTALL_LOCATION" &&
                 run_install_script "$NEOVIM_INSTALL_LOCATION" &&
-                
+
                 # Node has 3 things to install
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "nvm" &&
                 run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "pnpm" &&
@@ -112,9 +137,14 @@ determine_install_script_to_use () {
 				run_install_script "$GITHUB_INSTALL_LOCATION" &&
 				run_install_script "$TERRAFORM_INSTALL_LOCATION" &&
 				run_install_script "$BREW_INSTALL_LOCATION" &&
-				run_install_script "$DOCKER_INSTALL_LOCATION" &&                
+				run_install_script "$DOCKER_INSTALL_LOCATION" &&
                 run_install_script "$KUBECTL_INSTALL_LOCATION" &&
                 run_install_script "$OBSIDIAN_INSTALL_LOCATION" &&
+                run_install_script "$RIPGREP_INSTALL_LOCATION" &&
+                run_install_script "$BAT_INSTALL_LOCATION" &&
+                run_install_script "$FD_INSTALL_LOCATION" &&
+                run_install_script "$EZA_INSTALL_LOCATION" &&
+                run_install_script "$SHELLCHECK_INSTALL_LOCATION" &&
                 echo "Installed everything (except postgres)";
                 ;;
             *)
@@ -126,7 +156,7 @@ determine_install_script_to_use () {
 }
 
 use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "obsidian" "all")
+    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "obsidian" "ripgrep" "bat" "fd" "eza" "shellcheck" "all")
 
     if [[ $# -ne 0 ]]; then
         if [[ $# -gt 1 ]]; then
