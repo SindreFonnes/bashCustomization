@@ -57,7 +57,7 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 ## Phase 1: `bashc-install` — Install orchestration binary
 
-**What replaces:** All 14+ install scripts in `installScripts/`, `installScript.sh` menu, `commonMyinstallFunctions.sh` utility functions.
+**What replaces:** All 19 install scripts in `installScripts/`, `installScript.sh` menu, `installStuff.sh` base packages, `commonMyinstallFunctions.sh` utility functions.
 
 **Why first:** Install scripts are standalone executables (not sourced), run infrequently, have the most complex and fragile logic (HTML scraping for versions, manual checksum verification, platform-specific branching), and produce no shell state mutations — they install software and exit.
 
@@ -79,7 +79,7 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 - [ ] Implement `bashc-common::platform` module: OS detection (mac/wsl/linux), arch detection (amd64/arm64), with explicit error on unsupported platforms
 - [ ] Implement `bashc-common::version` module: semver comparison (replaces `is_greater_than_current_version`)
 - [ ] Implement `bashc-common::download` module: download with progress, checksum verification
-- [ ] Implement `bashc-common::package_manager` module: brew/apt dispatch
+- [ ] Implement `bashc-common::package_manager` module: brew-first dispatch on macOS/Debian/Fedora (Linuxbrew on Linux), native package manager on other distros (Arch/NixOS/Alpine)
 
 ### Task 1.2: Port Go install script
 
@@ -109,6 +109,18 @@ Port all install scripts as Rust subcommands. Priority order based on complexity
 - [ ] `terraform` — brew/apt dispatch with HashiCorp repo
 - [ ] `postgres` — brew/apt dispatch
 - [ ] `javascript` — nvm, pnpm, bun, yarn as sub-installers
+- [ ] `ripgrep` — brew/apt dispatch (simple)
+- [ ] `bat` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `batcat`, needs symlink handling)
+- [ ] `fd` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `fdfind`, needs symlink handling)
+- [ ] `eza` — brew on all platforms, apt on Linux (needs GPG key + third-party repo from deb.gierens.de)
+- [ ] `shellcheck` — brew/apt dispatch (simple)
+
+### Task 1.3.1: Port `installStuff.sh` base packages
+
+The refactored `installStuff.sh` installs brew first, then base packages (git, gnupg via brew; build-essential, git, safe-rm, keychain, nala, gnupg, pkg-config, libssl-dev, zip, unzip, tar, gzip, net-tools, libfuse2, libnss3-tools via apt on Linux), then delegates to the 5 new dedicated install scripts. In the Rust binary, this becomes a `bashc install base` command that installs platform-appropriate base packages before individual tools.
+
+- [ ] Implement `bashc install base` — installs foundational packages (brew packages on macOS, apt packages on Linux)
+- [ ] Ensure `bashc install all` runs `base` as the first phase before individual tool installers
 
 ### Task 1.4: Interactive menu and `all` command
 
@@ -160,7 +172,12 @@ Port all install scripts as Rust subcommands. Priority order based on complexity
 
 - [ ] Implement `bashc-scripts ssl-cert` — wraps openssl with proper defaults (passphrase, chmod 600)
 
-### Task 2.4: Replace script dispatcher
+### Task 2.4: Port launch-steam script
+
+- [ ] Implement `bashc-scripts launch-steam` — sets SDL controller config env vars and launches Steam (replaces `launchSteam.sh`)
+- [ ] Note: this is a niche script (gaming/controller workaround), low priority
+
+### Task 2.5: Replace script dispatcher
 
 - [ ] Implement `bashc-scripts --interactive` menu (replaces `gScriptRun.sh`)
 - [ ] Update `gScriptMain.sh` to point at Rust binary

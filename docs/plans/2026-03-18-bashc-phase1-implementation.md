@@ -10,6 +10,8 @@
 
 **Spec:** `docs/specs/2026-03-18-bashc-binary-design.md`
 
+**Package manager preference:** On macOS, Debian-based, and Fedora-based systems, Homebrew (including Linuxbrew) is the preferred installation method. Only fall back to native package managers (apt, dnf) when brew is unavailable or the package has a known brew-specific limitation. On other distros (Arch, NixOS, Alpine, etc.), use the native package manager directly. See the spec for full rationale.
+
 ---
 
 ## Testing approach
@@ -58,7 +60,7 @@ rust/
 init.sh                        # POSIX bootstrap for fresh machines
 ```
 
-**Required installers** (14 tools): go, kubectl, rust, docker, azure, dotnet, neovim, obsidian, brew, java, github CLI, terraform, postgres, javascript (nvm/pnpm/bun/yarn).
+**Required installers** (19 tools): go, kubectl, rust, docker, azure, dotnet, neovim, obsidian, brew, java, github CLI, terraform, postgres, javascript (nvm/pnpm/bun/yarn), ripgrep, bat, fd, eza, shellcheck.
 
 ---
 
@@ -131,9 +133,11 @@ init.sh                        # POSIX bootstrap for fresh machines
 ### Task 5: Package manager module
 
 **Requirements:**
-- `install(platform, package) -> Result<()>` — install a package via brew (macOS) or apt (Linux)
-- `brew_install_cask(package) -> Result<()>` — install a brew cask (macOS only)
-- `ensure_brew() -> Result<()>` — check if brew is installed, install it if not (macOS only). Handle both `/opt/homebrew` (ARM) and `/usr/local` (Intel) paths.
+- `install(platform, package) -> Result<()>` — install a package, preferring brew on macOS/Debian/Fedora, falling back to apt/dnf if brew is unavailable, using native package manager directly on other distros
+- `brew_install(package) -> Result<()>` — install a package via brew
+- `brew_install_cask(package) -> Result<()>` — install a brew cask (macOS only — casks not supported on Linuxbrew)
+- `ensure_brew() -> Result<()>` — check if brew is installed, install it if not. On macOS: handle both `/opt/homebrew` (ARM) and `/usr/local` (Intel) paths. On Debian/Fedora Linux: install Linuxbrew to `/home/linuxbrew/.linuxbrew`. On other distros: no-op or skip.
+- `has_brew() -> bool` — check if brew is available on PATH
 - `apt_add_gpg_key(url, keyring_path) -> Result<()>` — download a GPG key and install it for apt
 - `apt_add_repo(repo_line, list_file) -> Result<()>` — add an apt repository source file and run apt update
 - `needs_sudo_for_apt(platform) -> bool` — returns true if on Linux and not root
@@ -190,8 +194,8 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 **Problem:** Install the Go language runtime with proper arch detection and checksum verification.
 
 **Requirements:**
-- On macOS: ensure brew, then `brew install go`
-- On Linux: fetch the latest release from `https://go.dev/dl/?mode=json` (returns JSON array of releases with version, files, sha256 per file). Find the archive matching the current OS+arch. Download it, verify SHA256, extract to `/usr/local/go`. Needs sudo on Linux.
+- Preferred: `brew install go` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew): fetch the latest release from `https://go.dev/dl/?mode=json` (returns JSON array of releases with version, files, sha256 per file). Find the archive matching the current OS+arch. Download it, verify SHA256, extract to `/usr/local/go`. Needs sudo on Linux.
 - The JSON response has a `files` array where each entry has `os`, `arch`, `sha256`, `filename`, `kind` fields. Filter by `kind == "archive"`.
 - This fixes the hardcoded amd64 bug in the old shell script.
 
@@ -207,8 +211,8 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 **Problem:** Install kubectl with proper arch detection and checksum verification.
 
 **Requirements:**
-- On macOS: `brew install kubernetes-cli` and `brew install kubectx`
-- On Linux: fetch latest version from `https://dl.k8s.io/release/stable.txt`. Download binary from `https://dl.k8s.io/release/<version>/bin/linux/<arch>/kubectl`. Verify SHA256 from `<url>.sha256`. Install to `/usr/local/bin/kubectl`. Needs sudo.
+- Preferred: `brew install kubernetes-cli` and `brew install kubectx` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew): fetch latest version from `https://dl.k8s.io/release/stable.txt`. Download binary from `https://dl.k8s.io/release/<version>/bin/linux/<arch>/kubectl`. Verify SHA256 from `<url>.sha256`. Install to `/usr/local/bin/kubectl`. Needs sudo.
 
 - [ ] **Step 1:** Implement and register.
 - [ ] **Step 2:** Build.
@@ -236,19 +240,19 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ### Task 11: brew, docker, azure, dotnet installers
 
 **brew:**
-- macOS only. Calls `ensure_brew()`. Rejects WSL explicitly. Does not need sudo.
+- macOS, Debian-based, and Fedora-based systems. Calls `ensure_brew()` to install Homebrew (macOS) or Linuxbrew (Linux). Since brew is the preferred package manager on these distro families, this should run first. On other distros (Arch, NixOS, Alpine, etc.), skip brew and use the native package manager. Does not need sudo.
 
 **docker:**
-- macOS: `brew install docker`
-- Linux: add Docker GPG key (from `https://download.docker.com/linux/ubuntu/gpg`), add Docker apt repo, install `docker-ce docker-ce-cli containerd.io docker-compose-plugin`. Needs sudo on Linux.
+- Preferred: `brew install docker` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): add Docker GPG key (from `https://download.docker.com/linux/ubuntu/gpg`), add Docker apt repo, install `docker-ce docker-ce-cli containerd.io docker-compose-plugin`. Needs sudo. **Brew limitation:** Docker Desktop via brew cask is macOS-only; on Linux, the apt path installs the daemon properly with systemd integration, so this is one case where apt is actually better on Linux if Docker Engine (not Desktop) is the goal. Use judgement: brew for Docker Desktop on macOS, apt for Docker Engine on Linux.
 
 **azure:**
-- macOS: `brew install azure-cli`
-- Linux: add Microsoft GPG key, add Azure CLI apt repo, install `azure-cli`. This replaces the dangerous `curl | sudo bash` in the old script. Needs sudo on Linux.
+- Preferred: `brew install azure-cli` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): add Microsoft GPG key, add Azure CLI apt repo, install `azure-cli`. This replaces the dangerous `curl | sudo bash` in the old script. Needs sudo.
 
 **dotnet:**
-- macOS: `brew install dotnet`
-- Linux: read `/etc/os-release` to detect distro and version dynamically. Add Microsoft apt repo for the detected distro. Install `dotnet-sdk-8.0`. Fail with a clear error on unsupported distros (not just Ubuntu 22.04). Needs sudo on Linux.
+- Preferred: `brew install dotnet` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): read `/etc/os-release` to detect distro and version dynamically. Add Microsoft apt repo for the detected distro. Install `dotnet-sdk-8.0`. Fail with a clear error on unsupported distros (not just Ubuntu 22.04). Needs sudo.
 
 - [ ] **Step 1:** Implement all four installers.
 - [ ] **Step 2:** Register in mod.rs.
@@ -260,21 +264,21 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ### Task 12: neovim, obsidian, java, github_cli installers
 
 **neovim:**
-- macOS: `brew install neovim`
-- Linux x86_64: download `nvim.appimage` from GitHub releases, install to `~/.mybin/nvim`, make executable. Does not need sudo.
-- Linux aarch64: appimage is x86-only, so use `apt install neovim` instead. Needs sudo only on aarch64 Linux.
+- Preferred: `brew install neovim` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux x86_64): download `nvim.appimage` from GitHub releases, install to `~/.mybin/nvim`, make executable. Does not need sudo.
+- Fallback (no brew, Linux aarch64): appimage is x86-only, so use `apt install neovim` instead. Needs sudo.
 
 **obsidian:**
 - macOS: `brew install --cask obsidian`
-- Linux: use the GitHub Releases API (`https://api.github.com/repos/obsidianmd/obsidian-releases/releases/latest`) to find the latest `.deb` asset URL. Download it, install with `apt install ./<file>.deb`. Replaces the fragile HTML scraping. Needs sudo on Linux.
+- Linux: use the GitHub Releases API (`https://api.github.com/repos/obsidianmd/obsidian-releases/releases/latest`) to find the latest `.deb` asset URL. Download it, install with `apt install ./<file>.deb`. Replaces the fragile HTML scraping. Needs sudo on Linux. **Brew limitation:** Obsidian is a cask (GUI app) — on Linux, casks are not supported by Linuxbrew, so the .deb path is required.
 
 **java:**
-- macOS: `brew install openjdk`
-- Linux: `apt install default-jre default-jdk`. Needs sudo on Linux.
+- Preferred: `brew install openjdk` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): `apt install default-jre default-jdk`. Needs sudo.
 
 **github_cli:**
-- macOS: `brew install gh`
-- Linux: add GitHub GPG key from `https://cli.github.com/packages/githubcli-archive-keyring.gpg`, add apt repo, `apt install gh`. Needs sudo on Linux.
+- Preferred: `brew install gh` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): add GitHub GPG key from `https://cli.github.com/packages/githubcli-archive-keyring.gpg`, add apt repo, `apt install gh`. Needs sudo.
 
 - [ ] **Step 1:** Implement all four installers.
 - [ ] **Step 2:** Register in mod.rs.
@@ -286,25 +290,61 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 ### Task 13: terraform, postgres, javascript installers
 
 **terraform:**
-- macOS: `brew install terraform`
-- Linux: add HashiCorp GPG key, add apt repo (`https://apt.releases.hashicorp.com`), `apt install terraform`. Needs sudo on Linux.
+- Preferred: `brew install terraform` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): add HashiCorp GPG key, add apt repo (`https://apt.releases.hashicorp.com`), `apt install terraform`. Needs sudo.
 
 **postgres:**
-- macOS: `brew install postgresql`
-- Linux: `apt install postgresql postgresql-contrib`. Needs sudo on Linux.
+- Preferred: `brew install postgresql` (macOS, Debian-based, Fedora-based)
+- Fallback (no brew, Linux): `apt install postgresql postgresql-contrib`. Needs sudo. **Brew limitation:** Linuxbrew-installed postgres may have issues with systemd service management. If the user needs postgres as a system service on Linux, apt is safer. For development use, brew is fine.
 
 **javascript:**
 - This installer covers 4 sub-tools: nvm, pnpm, bun, yarn
-- nvm: download and run the install script from `https://raw.githubusercontent.com/nvm-sh/nvm/<latest>/install.sh`
+- nvm: download and run the install script from `https://raw.githubusercontent.com/nvm-sh/nvm/<latest>/install.sh` (no brew equivalent)
 - pnpm: `curl -fsSL https://get.pnpm.io/install.sh | sh -`
 - bun: `curl -fsSL https://bun.sh/install | bash`
-- yarn: macOS `brew install yarn`, Linux add Yarn GPG key + apt repo + `apt install yarn`
+- yarn: preferred `brew install yarn`, fallback (no brew, Linux) add Yarn GPG key + apt repo + `apt install yarn`
 - The install method should run all four in sequence (nvm first since it provides node, then the rest)
-- Needs sudo on Linux (for yarn apt repo)
+- Needs sudo on Linux only if brew is unavailable (for yarn apt repo)
 
 - [ ] **Step 1:** Implement all three installers.
 - [ ] **Step 2:** Register in mod.rs.
-- [ ] **Step 3:** Build and test `cargo run -- install all` — should list all 14 tools in the summary.
+- [ ] **Step 3:** Build.
+- [ ] **Step 4:** Commit.
+
+---
+
+### Task 13b: ripgrep, bat, fd, eza, shellcheck installers
+
+These 5 tools were recently added to the shell install scripts. They all follow the brew-first preference on macOS/Debian/Fedora: try brew first, fall back to native package manager only if brew is unavailable. On other distros, use the native package manager directly.
+
+**ripgrep:**
+- Preferred: `brew install ripgrep`
+- Fallback: `apt install ripgrep`. Needs sudo.
+- Check: `rg` on PATH.
+
+**bat:**
+- Preferred: `brew install bat` (also avoids Debian/Ubuntu `batcat` naming issue)
+- Fallback: `apt install bat`. On Debian/Ubuntu the binary is installed as `batcat` — create a symlink `~/.local/bin/bat -> batcat` if needed. Needs sudo.
+- Check: `bat` or `batcat` on PATH.
+
+**fd:**
+- Preferred: `brew install fd` (also avoids Debian/Ubuntu `fdfind` naming issue)
+- Fallback: `apt install fd-find`. On Debian/Ubuntu the binary is installed as `fdfind` — create a symlink `~/.local/bin/fd -> fdfind` if needed. Needs sudo.
+- Check: `fd` or `fdfind` on PATH.
+
+**eza:**
+- Preferred: `brew install eza` (also avoids needing third-party apt repo)
+- Fallback: requires adding GPG key from `https://raw.githubusercontent.com/eza-community/eza/main/deb.asc` to `/etc/apt/keyrings/gierens.gpg`, adding repo `deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main`, then `apt install eza`. Needs sudo.
+- Check: `eza` on PATH.
+
+**shellcheck:**
+- Preferred: `brew install shellcheck`
+- Fallback: `apt install shellcheck`. Needs sudo.
+- Check: `shellcheck` on PATH.
+
+- [ ] **Step 1:** Implement all five installers.
+- [ ] **Step 2:** Register in mod.rs.
+- [ ] **Step 3:** Build and test `cargo run -- install all` — should list all 19 tools in the summary.
 - [ ] **Step 4:** Commit.
 
 ---
@@ -317,8 +357,8 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 **Requirements:**
 - Define installation phases (e.g., via a method on the installer interface or a separate ordering function):
-  - Phase 0: prerequisites (`brew` on macOS)
-  - Phase 1: all independent tools (go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl) — run in parallel
+  - Phase 0: prerequisites (`brew` on macOS, Debian-based, and Fedora-based systems; skip on Arch/NixOS/Alpine)
+  - Phase 1: all independent tools (go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck) — run in parallel
   - Phase 2: JS tools — nvm first, then pnpm/bun/yarn in parallel
 - Use `tokio::task::spawn_blocking` since installers call subprocesses (blocking I/O)
 - Collect results from all phases into a single summary
@@ -401,7 +441,7 @@ Wire into `main.rs`: `bashc install <tool>` runs one, `bashc install all` runs a
 
 - [ ] **Step 1:** Build release binary: `cd rust && cargo build --release`
 - [ ] **Step 2:** Test `bashc install go` — should install or skip with proper output.
-- [ ] **Step 3:** Test `bashc install all` — summary showing status of all 14 tools.
+- [ ] **Step 3:** Test `bashc install all` — summary showing status of all 19 tools.
 - [ ] **Step 4:** Test `bashc install --interactive` — shows checkboxes, installs selected.
 - [ ] **Step 5:** Test `bashc install foobar` — error with list of available tools.
 - [ ] **Step 6:** Commit, tag `v0.1.0`, push with tags. This triggers the GitHub Actions release workflow.

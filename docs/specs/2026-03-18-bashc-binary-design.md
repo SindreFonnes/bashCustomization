@@ -9,7 +9,7 @@ A single Rust binary that replaces all shell-based install scripts, general scri
 - A fresh machine can be fully set up by cloning the repo and running a single init command
 - Bulletproof and maintainable code that works for all supported environments
 - Explicit errors on unsupported platforms — no silent misbehavior
-- Replace all 14+ fragile shell install scripts with proper error handling, arch detection, and checksum verification
+- Replace all 19 fragile shell install scripts with proper error handling, arch detection, and checksum verification
 
 ## Supported platforms
 
@@ -27,6 +27,7 @@ Any other platform produces a clear error showing what was detected and what is 
 ```
 bashc install go               # install a specific tool
 bashc install all              # install everything (parallel where possible)
+bashc install base             # install platform base packages (replaces installStuff.sh)
 bashc install --interactive    # TUI menu for selecting tools
 bashc scripts git-config       # (Phase 2) interactive git configuration
 bashc scripts gpg-setup        # (Phase 2) GPG signing setup
@@ -34,6 +35,20 @@ bashc platform                 # (Phase 3) output platform vars for eval
 bashc version compare 1.2 1.3  # (Phase 3) semver comparison
 bashc init                     # (Phase 4) generate shell config for eval
 ```
+
+## Package manager preference
+
+On **macOS, Debian-based, and Fedora-based** systems, **Homebrew is the preferred installation method** if the package is available through it. This applies to Linuxbrew on Linux as well. Only fall back to the native package manager (apt, dnf) when:
+
+- The package is not available in Homebrew
+- There is a known limitation when installed via Homebrew (e.g., system services that need systemd integration, packages that require tight OS-level integration)
+- Homebrew is not available and the user opted not to install it
+
+**Does not apply to:** Arch-based (use pacman/yay), NixOS (use nix), Alpine (use apk), or other distros with their own strong package ecosystems. On these systems, use the native package manager directly.
+
+**Rationale:** Homebrew provides consistent package names, avoids distro-specific quirks (e.g., Debian renaming `bat` to `batcat`, `fd` to `fdfind`), doesn't require sudo, and gives more up-to-date versions. Using a single package manager across macOS and the most common Linux distros simplifies the installer logic.
+
+Each installer should: detect the distro family → if macOS/Debian/Fedora, check if brew is available → try `brew install` → fall back to native package manager if brew is unavailable or the package has a known brew limitation. On other distros, go straight to the native package manager.
 
 ## Sudo handling
 
@@ -73,8 +88,8 @@ Failed tools can be retried individually: bashc install <tool>
 `bashc install all` installs tools in parallel where possible:
 
 1. **Pre-flight phase**: Check sudo requirements for all tools upfront. Detect already-installed tools and skip them.
-2. **Brew first** (macOS only): Install Homebrew before anything else, since most macOS installs depend on it.
-3. **Parallel batch**: Install all independent tools concurrently — go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl.
+2. **Base packages**: Install Homebrew (if macOS, debian based or fedora based system) and platform base packages (git, gnupg via brew; build-essential, git, safe-rm, keychain, nala, gnupg, pkg-config, libssl-dev, zip, unzip, tar, gzip, net-tools, libfuse2, libnss3-tools via apt on Linux). This replaces `installStuff.sh`.
+3. **Parallel batch**: Install all independent tools concurrently — go, rust, docker, azure, dotnet, neovim, obsidian, java, github, terraform, postgres, kubectl, ripgrep, bat, fd, eza, shellcheck.
 4. **Sequential JS batch**: Install nvm first (provides node), then pnpm, bun, and yarn in parallel.
 5. **Report**: Print summary of successes, skips, and failures.
 
@@ -118,12 +133,17 @@ rust/
       terraform.rs             # Terraform
       postgres.rs              # PostgreSQL
       javascript.rs            # nvm, pnpm, bun, yarn
+      ripgrep.rs               # ripgrep (rg)
+      bat.rs                   # bat (handles batcat symlink on Debian/Ubuntu)
+      fd.rs                    # fd (handles fdfind symlink on Debian/Ubuntu)
+      eza.rs                   # eza (third-party apt repo on Linux)
+      shellcheck.rs            # ShellCheck
     common/
       mod.rs
       platform.rs              # OS/arch detection with explicit unsupported errors
       version.rs               # semver comparison
       download.rs              # HTTP download with progress + SHA256 checksum verification
-      package_manager.rs       # brew/apt helpers (install, add GPG key, add repo)
+      package_manager.rs       # brew-first on macOS/Debian/Fedora, native pkg manager on other distros
       command.rs               # subprocess execution with stdout/stderr capture
 ```
 
@@ -161,6 +181,11 @@ rust/
 - **postgres**: brew install postgresql (macOS), apt install postgresql (Linux)
 - **brew**: macOS only, run Homebrew's official install script
 - **javascript**: nvm via install script, pnpm via install script, bun via install script, yarn via brew/apt
+- **ripgrep**: brew install ripgrep (all), apt install ripgrep (Linux)
+- **bat**: brew install bat (all). On Linux apt installs as `batcat` — needs `~/.local/bin/bat` symlink
+- **fd**: brew install fd (all). On Linux apt package is `fd-find`, installs as `fdfind` — needs `~/.local/bin/fd` symlink
+- **eza**: brew install eza (all). On Linux: add GPG key + third-party apt repo (deb.gierens.de)
+- **shellcheck**: brew install shellcheck (all), apt install shellcheck (Linux)
 
 ## CI/CD: GitHub Actions release workflow
 
