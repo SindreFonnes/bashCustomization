@@ -1,11 +1,10 @@
 #!/bin/sh
 # Docker-based integration tests for bashc across Linux distros.
-# Runs from the repository root. Requires: docker, cross or cargo with cross-compilation targets.
+# Runs from the repository root. Requires: docker.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-RUST_DIR="$REPO_ROOT/rust"
 DOCKER_DIR="$SCRIPT_DIR"
 BUILD_DIR="$SCRIPT_DIR/.build"
 
@@ -46,45 +45,22 @@ log_skip() {
   ${YELLOW}SKIP${NC}  $1: $2"
 }
 
-# --- Cross-compilation ---
+# --- Build binaries via Docker ---
 
 build_binaries() {
-    say "${BOLD}Building bashc binaries...${NC}"
+    say "${BOLD}Building bashc binaries via Docker...${NC}"
     mkdir -p "$BUILD_DIR"
 
-    GLIBC_TARGET="x86_64-unknown-linux-gnu"
-    MUSL_TARGET="x86_64-unknown-linux-musl"
-
-    if command -v cross >/dev/null 2>&1; then
-        say "  Using cross for compilation"
-        cd "$RUST_DIR"
-        cross build --release --target "$GLIBC_TARGET" 2>&1 | tail -1
-        cross build --release --target "$MUSL_TARGET" 2>&1 | tail -1
-        cp "target/$GLIBC_TARGET/release/bashc" "$BUILD_DIR/bashc"
-        cp "target/$MUSL_TARGET/release/bashc" "$BUILD_DIR/bashc-musl"
+    # Build a statically-linked musl binary via Docker (works on all Linux distros)
+    say "  Building statically-linked bashc binary (this may take a few minutes on first run)..."
+    if docker build --output "type=local,dest=$BUILD_DIR" \
+        -f "$DOCKER_DIR/Dockerfile.builder" "$REPO_ROOT" 2>&1 | tail -3; then
+        true
     else
-        say "  ${YELLOW}'cross' not found. Install with: cargo install cross${NC}"
-        say "  Attempting cargo build with installed targets..."
-        cd "$RUST_DIR"
-
-        if rustup target list --installed | grep -q "$GLIBC_TARGET"; then
-            cargo build --release --target "$GLIBC_TARGET" 2>&1 | tail -1
-            cp "target/$GLIBC_TARGET/release/bashc" "$BUILD_DIR/bashc"
-        else
-            say "  ${RED}Target $GLIBC_TARGET not installed. Run: rustup target add $GLIBC_TARGET${NC}"
-            exit 1
-        fi
-
-        if rustup target list --installed | grep -q "$MUSL_TARGET"; then
-            cargo build --release --target "$MUSL_TARGET" 2>&1 | tail -1
-            cp "target/$MUSL_TARGET/release/bashc" "$BUILD_DIR/bashc-musl"
-        else
-            say "  ${YELLOW}Target $MUSL_TARGET not installed — Alpine tests will be skipped${NC}"
-            touch "$BUILD_DIR/.no-musl"
-        fi
+        say "  ${RED}Docker build failed${NC}"
+        exit 1
     fi
 
-    cd "$REPO_ROOT"
     printf '  Binaries ready in %s\n\n' "$BUILD_DIR"
 }
 
@@ -94,17 +70,9 @@ build_image() {
     distro="$1"
     dockerfile="$DOCKER_DIR/Dockerfile.$distro"
 
-    if [ "$distro" = "alpine" ] && [ -f "$BUILD_DIR/.no-musl" ]; then
-        return 1
-    fi
-
     printf '  Building bashc-test-%s...' "$distro"
-    # Copy the right binary next to the Dockerfile for COPY context
-    if [ "$distro" = "alpine" ]; then
-        cp "$BUILD_DIR/bashc-musl" "$DOCKER_DIR/bashc-musl"
-    else
-        cp "$BUILD_DIR/bashc" "$DOCKER_DIR/bashc"
-    fi
+    # Copy the binary next to the Dockerfile for COPY context
+    cp "$BUILD_DIR/bashc" "$DOCKER_DIR/bashc"
 
     if docker build -t "bashc-test-$distro" -f "$dockerfile" "$DOCKER_DIR" >/dev/null 2>&1; then
         printf ' done\n'
@@ -146,8 +114,8 @@ test_real_install() {
     distro="$1"
     test_name="$distro/real-install"
 
-    # Install lightweight CLI tools via apt
-    output=$(run_in "$distro" "bashc install ripgrep && rg --version") || {
+    # Refresh package cache and install a lightweight CLI tool
+    output=$(run_in "$distro" "apt-get update -qq && bashc install ripgrep && rg --version") || {
         log_fail "$test_name" "ripgrep install or version check failed"
         printf '    Output: %s\n' "$(echo "$output" | tail -5)"
         return
@@ -234,7 +202,7 @@ for distro in $distros; do
 done
 
 # Clean up copied binaries
-rm -f "$DOCKER_DIR/bashc" "$DOCKER_DIR/bashc-musl"
+rm -f "$DOCKER_DIR/bashc"
 
 echo
 say "${BOLD}Running tests...${NC}"
