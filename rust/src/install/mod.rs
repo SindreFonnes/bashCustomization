@@ -1,3 +1,7 @@
+mod go;
+mod kubectl;
+mod rust_lang;
+
 use anyhow::{Result, bail};
 
 use crate::common::platform::Platform;
@@ -44,8 +48,11 @@ pub fn available_tool_names() -> Vec<String> {
 
 /// Return all registered installers.
 pub fn all_installers() -> Vec<Box<dyn Installer>> {
-    // Will be populated as installers are implemented
-    vec![]
+    vec![
+        Box::new(go::GoInstaller),
+        Box::new(kubectl::KubectlInstaller),
+        Box::new(rust_lang::RustInstaller),
+    ]
 }
 
 /// Find an installer by name.
