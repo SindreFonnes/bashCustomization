@@ -35,5 +35,8 @@
 - After editing, verify the sourcing chain works: `source main.sh` should complete without errors
 - If you make a change that would affect how other modules load, trace the full loading path in `load_shell_extentionfiles`
 
+## Writing specs and plans
+- Specs and plans should be **requirements-driven, not implementation-prescriptive**. Describe *what* the system should do, *why*, and what constraints apply — not *how* to code it. Avoid including full code implementations in specs; the implementing agent should make code-level decisions based on the requirements and the current state of the codebase. Code snippets are acceptable only for interface contracts (e.g., a trait signature) or to illustrate a concept that would be ambiguous in prose. Detailed code in a spec biases the implementer toward a specific solution that may not be correct once they see the actual codebase, and it creates a false sense of completeness when the real details only emerge during implementation.
+
 If you notice something does not quite make sense, or you loop back to the same issue multiple times, consider raising the issue to a human, and add documentation on the solution that is settled on.
 If you notice you have to look for something multiple times or feel you have an insight regarding the work done, add it to a `potential_insights.md` file at the project root so that they can be looked through and potentially converted into documentation later by a human.
