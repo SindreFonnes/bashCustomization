@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use bashc_e2e::container::TestContainer;
 use bashc_e2e::distro::{docker_dir, repo_root};
 use bollard::Docker;
-use tokio::sync::OnceCell;
+use tokio::sync::{Mutex, OnceCell};
 
 const BUILDER_IMAGE_TAG: &str = "bashc-builder";
 const DEBIAN_IMAGE_TAG: &str = "bashc-test-debian";
@@ -17,6 +17,23 @@ const CONTAINER_NAME: &str = "bashc-e2e-debian";
 /// at the start of the next run.
 static CONTAINER: OnceCell<TestContainer> = OnceCell::const_new();
 
+/// Shared apt-get update guard — runs exactly once per test binary invocation.
+///
+/// Because all tests in this binary share a single process and a single
+/// container, running `apt-get update` concurrently from multiple test
+/// modules would cause apt lock contention. Centralising it here ensures it
+/// executes at most once, regardless of how many modules call it.
+static APT_UPDATED: OnceCell<()> = OnceCell::const_new();
+
+/// Global mutex that serialises all apt-get install invocations.
+///
+/// apt holds exclusive file locks on `/var/lib/dpkg/lock-frontend` and
+/// `/var/lib/apt/lists/lock`. If two `bashc install` commands run at the same
+/// time inside the shared container they will race on those locks and one will
+/// fail with exit code 100. Holding this mutex around every install call
+/// guarantees at most one apt operation is in-flight at any moment.
+static APT_INSTALL_LOCK: Mutex<()> = Mutex::const_new(());
+
 /// Get or initialize the shared Debian test container.
 pub async fn get_container() -> &'static TestContainer {
     CONTAINER
@@ -26,6 +43,37 @@ pub async fn get_container() -> &'static TestContainer {
                 .expect("failed to initialize Debian test container")
         })
         .await
+}
+
+/// Acquire the global apt install lock and return the guard.
+///
+/// Hold the returned guard for the duration of any `apt-get install` or
+/// `bashc install` call to prevent concurrent apt invocations inside the
+/// shared container.
+pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    APT_INSTALL_LOCK.lock().await
+}
+
+/// Run `apt-get update -qq` exactly once across the entire test binary.
+///
+/// Multiple concurrent callers are safe: `OnceCell::get_or_init` serialises
+/// them so only one invocation of `apt-get update` ever runs.
+pub async fn ensure_apt_updated() {
+    APT_UPDATED
+        .get_or_init(|| async {
+            let container = get_container().await;
+            let result = container
+                .exec(&["apt-get", "update", "-qq"])
+                .await
+                .expect("apt-get update exec failed");
+            if result.exit_code != 0 {
+                panic!(
+                    "apt-get update failed with exit code {}\n--- stderr ---\n{}",
+                    result.exit_code, result.stderr
+                );
+            }
+        })
+        .await;
 }
 
 async fn init_container() -> Result<TestContainer> {
