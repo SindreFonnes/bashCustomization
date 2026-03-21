@@ -70,7 +70,10 @@ impl TestContainer {
         builder_image_tag: &str,
         dest_path: &Path,
     ) -> Result<()> {
-        let container_name = "bashc-binary-extractor";
+        let container_name = format!(
+            "bashc-binary-extractor-{}",
+            std::process::id()
+        );
 
         // Create a container (do not start it -- we just need the filesystem).
         let config = Config {
@@ -79,14 +82,14 @@ impl TestContainer {
             ..Default::default()
         };
         let options = CreateContainerOptions {
-            name: container_name.to_string(),
+            name: container_name.clone(),
             ..Default::default()
         };
 
         // Remove any leftover extractor container from a previous run.
         let _ = docker
             .remove_container(
-                container_name,
+                &container_name,
                 Some(RemoveContainerOptions {
                     force: true,
                     ..Default::default()
@@ -101,7 +104,7 @@ impl TestContainer {
 
         // Copy /bashc out of the container.
         let tar_stream = docker
-            .download_from_container(container_name, Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }));
+            .download_from_container(&container_name, Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }));
 
         let mut tar_bytes: Vec<u8> = Vec::new();
         let mut stream = tar_stream;
@@ -133,7 +136,7 @@ impl TestContainer {
         // Clean up the extractor container.
         docker
             .remove_container(
-                container_name,
+                &container_name,
                 Some(RemoveContainerOptions {
                     force: true,
                     ..Default::default()

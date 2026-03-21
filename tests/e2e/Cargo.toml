@@ -10,3 +10,27 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 tar = "0.4"
 futures-util = "0.3"
+
+[[test]]
+name = "alpine"
+path = "tests/alpine/main.rs"
+
+[[test]]
+name = "arch"
+path = "tests/arch/main.rs"
+
+[[test]]
+name = "debian"
+path = "tests/debian/main.rs"
+
+[[test]]
+name = "fedora"
+path = "tests/fedora/main.rs"
+
+[[test]]
+name = "nixos"
+path = "tests/nixos/main.rs"
+
+[[test]]
+name = "ubuntu"
+path = "tests/ubuntu/main.rs"

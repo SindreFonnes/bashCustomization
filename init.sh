@@ -12,7 +12,12 @@ BINARY_NAME="bashc"
 detect_os() {
     case "$(uname -s)" in
         Darwin) echo "apple-darwin" ;;
-        Linux)  echo "unknown-linux-gnu" ;;
+        Linux)
+            case "$(detect_distro)" in
+                alpine) echo "unknown-linux-musl" ;;
+                *)      echo "unknown-linux-gnu" ;;
+            esac
+            ;;
         *)
             echo "Error: Unsupported OS: $(uname -s)" >&2
             echo "Supported: macOS (Darwin), Linux" >&2
@@ -179,9 +184,9 @@ else
     "$BINARY_PATH" "$@"
 fi
 
-# Clean up
-rm -rf "$TMPDIR"
-
 echo ""
 echo "Done. To install bashc permanently, copy it to a directory on your PATH:"
 echo "  sudo cp ${BINARY_PATH} /usr/local/bin/${BINARY_NAME}"
+
+# Clean up
+rm -rf "$TMPDIR"

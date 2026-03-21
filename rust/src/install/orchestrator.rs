@@ -25,7 +25,12 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
 
     let outcome = run_one(&tool, config);
     print_single_outcome(tool.name(), &outcome);
-    Ok(())
+    match outcome {
+        InstallOutcome::Failed(reason) => {
+            bail!("installation of {} failed: {}", tool.name(), reason);
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Run a single installer with pre-flight checks.
@@ -36,7 +41,7 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
 
     if tool.needs_sudo(&config.platform) && !crate::common::command::is_root() {
         return InstallOutcome::Failed(format!(
-            "requires sudo — re-run with: sudo bashc install {}",
+            "requires root privileges — re-run as root to install {}",
             tool.name()
         ));
     }
@@ -65,7 +70,7 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
 
         if !needs_sudo.is_empty() {
             bail!(
-                "The following tools require sudo on this platform: {}\nRe-run with: sudo bashc install all",
+                "The following tools require root privileges on this platform: {}\nRe-run as root to install all tools",
                 needs_sudo.join(", ")
             );
         }
@@ -235,18 +240,21 @@ fn run_phase_parallel(
         handles.push((name, Some(handle), None));
     }
 
-    // Collect results
+    // Collect results — use block_in_place to avoid panicking when
+    // block_on is called from within the tokio runtime context.
     let mut results = Vec::new();
-    for (name, handle, immediate) in handles {
-        if let Some(outcome) = immediate {
-            results.push((name, outcome));
-        } else if let Some(handle) = handle {
-            let outcome = rt.block_on(handle).unwrap_or_else(|e| {
-                InstallOutcome::Failed(format!("task panicked: {e}"))
-            });
-            results.push((name, outcome));
+    tokio::task::block_in_place(|| {
+        for (name, handle, immediate) in handles {
+            if let Some(outcome) = immediate {
+                results.push((name, outcome));
+            } else if let Some(handle) = handle {
+                let outcome = rt.block_on(handle).unwrap_or_else(|e| {
+                    InstallOutcome::Failed(format!("task panicked: {e}"))
+                });
+                results.push((name, outcome));
+            }
         }
-    }
+    });
 
     results
 }

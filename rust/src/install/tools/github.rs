@@ -55,11 +55,14 @@ fn install_github_apt(platform: &Platform) -> Result<()> {
         "/etc/apt/keyrings/githubcli-archive-keyring.gpg",
     )?;
 
-    let repo_line = "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main";
+    let dpkg_arch = platform.go_arch();
+    let repo_line = format!(
+        "deb [arch={dpkg_arch} signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+    );
 
     println!("Adding GitHub CLI apt repository...");
     package_manager::apt_add_repo(
-        repo_line,
+        &repo_line,
         "/etc/apt/sources.list.d/github-cli.list",
     )?;
 

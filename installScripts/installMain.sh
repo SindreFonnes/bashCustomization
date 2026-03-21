@@ -12,12 +12,12 @@ source "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh";
 run_my_install () {
     # Prefer bashc Rust binary when available
     if command -v bashc &> /dev/null; then
-        bashc install "$1";
+        bashc install "$@";
         return $?;
     fi
 
     # Fall back to shell script dispatch
-    $MYINSTALL_SCRIPT_LOCATION $1 $2;
+    "$MYINSTALL_SCRIPT_LOCATION" "$@";
 }
 
 if [[ $PROFILE_SHELL == "bash" ]]; then
