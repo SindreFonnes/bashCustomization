@@ -38,9 +38,13 @@ impl crate::install::Installer for BaseInstaller {
             install_base_mac()?;
         } else if platform.is_debian() {
             install_base_linux()?;
+        } else if platform.is_nixos() {
+            return package_manager::nix_guidance("base development tools");
         } else if platform.is_linux() {
             if let Some(distro) = platform.distro() {
-                println!("base packages not yet configured for {distro:?}");
+                anyhow::bail!("base packages not yet configured for {distro:?}");
+            } else {
+                anyhow::bail!("base packages not supported on this platform");
             }
         }
 

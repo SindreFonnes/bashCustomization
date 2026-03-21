@@ -25,6 +25,13 @@ impl crate::install::Installer for BrewInstaller {
             return Ok(());
         }
 
+        if !package_manager::is_brew_applicable(&config.platform) {
+            anyhow::bail!(
+                "Homebrew is not supported on {:?}",
+                config.platform.distro()
+            );
+        }
+
         println!("Installing Homebrew...");
         package_manager::ensure_brew(&config.platform)
     }

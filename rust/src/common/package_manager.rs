@@ -26,7 +26,7 @@ pub fn has_brew() -> bool {
 /// Returns true if brew is applicable on this platform.
 /// Brew is supported on macOS, Debian, and Fedora. It is not applicable on
 /// Arch, Alpine, NixOS, or unknown distros.
-fn is_brew_applicable(platform: &Platform) -> bool {
+pub fn is_brew_applicable(platform: &Platform) -> bool {
     if platform.is_mac() {
         return true;
     }
@@ -73,15 +73,7 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         // Activate brew in current process by parsing `brew shellenv`
         if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
             let shellenv = command::run("/opt/homebrew/bin/brew", &["shellenv"])?;
-            for line in shellenv.lines() {
-                if let Some(rest) = line.strip_prefix("export ") {
-                    if let Some((key, value)) = rest.split_once('=') {
-                        let value = value.trim_matches('"').trim_matches(';');
-                        // SAFETY: runs during single-threaded init
-                        unsafe { std::env::set_var(key, value); }
-                    }
-                }
-            }
+            apply_shellenv(&shellenv);
         }
     } else if platform.is_linux() {
         let result = command::run_visible(
@@ -98,23 +90,11 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
             return result;
         }
 
-        // Activate Linuxbrew in the current process by parsing `brew shellenv`
-        // output and applying env vars directly (running it in a subprocess
-        // would only affect that subprocess, not us).
+        // Activate Linuxbrew in the current process
         if std::path::Path::new("/home/linuxbrew/.linuxbrew/bin/brew").exists() {
             let shellenv =
                 command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
-            for line in shellenv.lines() {
-                // Parse lines like: export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
-                if let Some(rest) = line.strip_prefix("export ") {
-                    if let Some((key, value)) = rest.split_once('=') {
-                        let value = value.trim_matches('"').trim_matches(';');
-                        // SAFETY: this runs during single-threaded init
-                        // before any parallel tool installs start.
-                        unsafe { std::env::set_var(key, value); }
-                    }
-                }
-            }
+            apply_shellenv(&shellenv);
         }
     }
 
@@ -124,6 +104,29 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse `brew shellenv` output and apply env vars to the current process.
+///
+/// Handles `$PATH`/`${PATH}` expansion so we don't clobber the process PATH
+/// with a literal `$PATH` string.
+fn apply_shellenv(shellenv: &str) {
+    for line in shellenv.lines() {
+        // Parse lines like: export HOMEBREW_PREFIX="/opt/homebrew"
+        if let Some(rest) = line.strip_prefix("export ") {
+            if let Some((key, value)) = rest.split_once('=') {
+                let mut value = value.trim_matches('"').trim_matches(';').to_string();
+                // Expand $PATH / ${PATH} references against current env
+                if let Ok(current) = std::env::var(key) {
+                    value = value
+                        .replace(&format!("${{{key}}}"), &current)
+                        .replace(&format!("${key}"), &current);
+                }
+                // SAFETY: runs during single-threaded init before parallel installs
+                unsafe { std::env::set_var(key, &value); }
+            }
+        }
+    }
 }
 
 /// Install a package via brew.
