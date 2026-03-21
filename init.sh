@@ -185,8 +185,9 @@ else
 fi
 
 echo ""
-echo "Done. To install bashc permanently, copy it to a directory on your PATH:"
-echo "  sudo cp ${BINARY_PATH} /usr/local/bin/${BINARY_NAME}"
+echo "Done. To install bashc permanently, re-run with:"
+echo "  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/init.sh | sh -s -- install bashc"
+echo "Or download the binary directly from https://github.com/${REPO}/releases"
 
 # Clean up
 rm -rf "$TMPDIR"

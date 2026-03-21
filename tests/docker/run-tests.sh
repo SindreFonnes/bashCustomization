@@ -216,7 +216,7 @@ for distro in $distros; do
         fedora)  label="Fedora" ;;
         arch)    label="Arch" ;;
         alpine)  label="Alpine" ;;
-        nixos)   label="NixOS|nixos|Unknown" ;;
+        nixos)   label="NixOS|nixos" ;;
     esac
 
     if docker image inspect "bashc-test-$distro" >/dev/null 2>&1; then

@@ -205,23 +205,21 @@ pub fn apt_install(package: &str) -> Result<()> {
 
 /// Download a GPG key and install it for apt.
 pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
-    // Download key bytes and pipe to gpg --dearmor
-    let key_data = command::run(
-        "curl",
-        &["-fsSL", url],
-    )?;
-
     // Ensure /etc/apt/keyrings exists
     privilege::run_privileged("mkdir", &["-p", "/etc/apt/keyrings"])?;
 
-    // Pipe key through gpg --dearmor to keyring_path
-    let cmd = format!(
-        "echo '{}' | gpg --dearmor -o {}",
-        key_data.replace('\'', "'\\''"),
-        keyring_path
-    );
-
-    privilege::run_privileged("bash", &["-c", &cmd])
+    if url.ends_with(".gpg") {
+        // Already a binary keyring — download directly without dearmoring
+        let cmd = format!("curl -fsSL '{}' -o '{}'", url, keyring_path);
+        privilege::run_privileged("bash", &["-c", &cmd])
+    } else {
+        // ASCII-armored key (.asc or bare) — download and dearmor
+        let cmd = format!(
+            "curl -fsSL '{}' | gpg --dearmor -o '{}'",
+            url, keyring_path
+        );
+        privilege::run_privileged("bash", &["-c", &cmd])
+    }
 }
 
 /// Add an apt repository source file and run apt update.

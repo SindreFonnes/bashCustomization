@@ -39,9 +39,12 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
         return InstallOutcome::Skipped("already installed".to_string());
     }
 
-    if tool.needs_sudo(&config.platform) && !crate::common::command::is_root() {
+    if tool.needs_sudo(&config.platform)
+        && !crate::common::command::is_root()
+        && !crate::common::privilege::has_path_escalator()
+    {
         return InstallOutcome::Failed(format!(
-            "requires root privileges — re-run as root to install {}",
+            "requires root privileges — no sudo/doas/su found to install {}",
             tool.name()
         ));
     }
@@ -64,13 +67,17 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     if !config.dry_run {
         let needs_sudo: Vec<&str> = ALL_TOOLS
             .iter()
-            .filter(|t| t.needs_sudo(&config.platform) && !crate::common::command::is_root())
+            .filter(|t| {
+                t.needs_sudo(&config.platform)
+                    && !crate::common::command::is_root()
+                    && !crate::common::privilege::has_path_escalator()
+            })
             .map(|t| t.name())
             .collect();
 
         if !needs_sudo.is_empty() {
             bail!(
-                "The following tools require root privileges on this platform: {}\nRe-run as root to install all tools",
+                "The following tools require root privileges and no sudo/doas/su was found: {}\nInstall sudo/doas or re-run as root",
                 needs_sudo.join(", ")
             );
         }
@@ -210,12 +217,15 @@ fn run_phase_parallel(
             continue;
         }
 
-        if tool.needs_sudo(&shared_config.platform) && !crate::common::command::is_root() {
+        if tool.needs_sudo(&shared_config.platform)
+            && !crate::common::command::is_root()
+            && !crate::common::privilege::has_path_escalator()
+        {
             handles.push((
                 name.clone(),
                 None,
                 Some(InstallOutcome::Failed(format!(
-                    "requires sudo — re-run with: sudo bashc install {name}"
+                    "requires root privileges — no sudo/doas/su found to install {name}"
                 ))),
             ));
             continue;

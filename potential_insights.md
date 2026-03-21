@@ -1,23 +1,16 @@
 # Potential Insights
 
-## bashc install always exits 0, even on silent failures
+## bashc install exit-code behavior
 
-`bashc install <tool>` exits 0 regardless of whether the tool was actually
-installed. The orchestrator (`install/orchestrator.rs`) converts
-`InstallOutcome::Failed` into a printed message but still returns `Ok(())`.
-This means e2e tests cannot rely on the exit code to verify installation
-succeeded — they must verify the resulting binary works.
+`bashc install <tool>` now exits non-zero when installation fails.
+`run_by_name` bails on `InstallOutcome::Failed`, so the process exit code
+reflects actual success or failure. Tests can and should rely on the exit code.
 
 **Impact on eza:** `bashc install eza` installs from the third-party
 `deb.gierens.de` apt repo. If that repo is unreachable from the container (DNS,
-firewall, or network policy), the install silently fails but exits 0. The e2e
-test `eza_version_works` therefore checks `command -v eza` before running
-`eza --version`, and skips rather than fails if eza is not present.
-
-**Possible fix:** The orchestrator could exit non-zero if any tool reports
-`InstallOutcome::Failed`, at least when installing a single named tool
-(`bashc install <name>`). This would let CI catch real failures rather than
-masking them.
+firewall, or network policy), the install fails with a non-zero exit code.
+The `ensure_eza_installed()` helper in e2e tests handles this gracefully by
+warning instead of panicking, and downstream tests skip if eza is not present.
 
 ## eza requires external network in container tests
 
