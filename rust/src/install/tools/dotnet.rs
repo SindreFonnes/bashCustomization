@@ -97,6 +97,10 @@ fn read_os_release() -> Result<(String, String)> {
         bail!("Could not determine distro ID from /etc/os-release");
     }
 
+    if version_id.is_empty() {
+        bail!("Could not determine VERSION_ID from /etc/os-release — needed for Microsoft repo URL");
+    }
+
     Ok((id, version_id))
 }
 

@@ -61,6 +61,7 @@ pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
 pub async fn ensure_apt_updated() {
     APT_UPDATED
         .get_or_init(|| async {
+            let _lock = apt_install_lock().await;
             let container = get_container().await;
             let result = container
                 .exec(&["apt-get", "update", "-qq"])
