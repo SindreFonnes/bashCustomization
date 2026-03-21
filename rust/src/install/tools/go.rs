@@ -1,0 +1,155 @@
+use anyhow::{Context, Result};
+use serde::Deserialize;
+
+use crate::common::{command, download, package_manager, platform::Platform, privilege};
+use crate::install::InstallConfig;
+
+#[derive(Debug, Clone, Copy)]
+pub struct GoInstaller;
+
+#[derive(Deserialize)]
+struct GoRelease {
+    version: String,
+    files: Vec<GoFile>,
+}
+
+#[derive(Deserialize)]
+struct GoFile {
+    filename: String,
+    os: String,
+    arch: String,
+    kind: String,
+    sha256: String,
+}
+
+impl crate::install::Installer for GoInstaller {
+    fn name(&self) -> &str {
+        "go"
+    }
+
+    fn needs_sudo(&self, platform: &Platform) -> bool {
+        // Needs sudo on Linux for /usr/local/go extraction (only if no brew).
+        // NixOS emits guidance only, no root needed.
+        platform.is_linux() && !platform.is_nixos() && !package_manager::has_brew()
+    }
+
+    fn is_installed(&self) -> bool {
+        command::exists("go")
+    }
+
+    fn install(&self, config: &InstallConfig) -> Result<()> {
+        let platform = &config.platform;
+
+        if config.dry_run {
+            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+                println!("  Would install go via brew");
+            } else {
+                println!("  Would download latest Go from go.dev, verify SHA256, extract to /usr/local/go");
+            }
+            return Ok(());
+        }
+
+        // Try brew first
+        if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            println!("Installing Go via brew...");
+            return package_manager::brew_install("go");
+        }
+
+        // NixOS: emit declarative guidance
+        if platform.is_nixos() {
+            return package_manager::nix_guidance("go");
+        }
+
+        // Fallback: direct download
+        install_go_direct(platform)
+    }
+}
+
+fn install_go_direct(platform: &Platform) -> Result<()> {
+    println!("Fetching latest Go release from go.dev...");
+
+    let releases: Vec<GoRelease> =
+        download::fetch_json("https://go.dev/dl/?mode=json")
+            .context("failed to fetch Go releases")?;
+
+    let release = releases
+        .first()
+        .context("no Go releases found")?;
+
+    let go_os = platform.go_os();
+    let go_arch = platform.go_arch();
+
+    let file = release
+        .files
+        .iter()
+        .find(|f| f.kind == "archive" && f.os == go_os && f.arch == go_arch)
+        .with_context(|| {
+            format!("no Go archive found for {go_os}/{go_arch} in {}", release.version)
+        })?;
+
+    println!(
+        "Downloading {} (SHA256: {}...)",
+        file.filename,
+        &file.sha256[..12]
+    );
+
+    let tmp_dir = std::env::temp_dir();
+    let archive_path = tmp_dir.join(&file.filename);
+
+    let url = format!("https://go.dev/dl/{}", file.filename);
+    download::download_file(&url, &archive_path)?;
+
+    println!("Verifying SHA256...");
+    download::verify_sha256(&archive_path, &file.sha256)?;
+    println!("Checksum OK");
+
+    // Remove existing Go installation if any
+    let go_dir = std::path::Path::new("/usr/local/go");
+    if go_dir.exists() {
+        privilege::run_privileged("rm", &["-rf", "/usr/local/go"])?;
+    }
+
+    // Extract
+    println!("Extracting to /usr/local/go...");
+    privilege::run_privileged(
+        "tar",
+        &["-C", "/usr/local", "-xzf", archive_path.to_str().unwrap()],
+    )?;
+
+    // Clean up
+    let _ = std::fs::remove_file(&archive_path);
+
+    println!("Go {} installed to /usr/local/go", release.version);
+    if !std::env::var("PATH").unwrap_or_default().contains("/usr/local/go/bin") {
+        println!("Note: Add /usr/local/go/bin to your PATH");
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    #[test]
+    fn needs_sudo_on_debian_without_brew() {
+        let p = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        // May be true or false depending on whether brew is on PATH in test env,
+        // but should not panic
+        let _ = GoInstaller.needs_sudo(&p);
+    }
+
+    #[test]
+    fn needs_sudo_false_on_nixos() {
+        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        assert!(!GoInstaller.needs_sudo(&p), "NixOS should not need sudo (guidance only)");
+    }
+
+    #[test]
+    fn needs_sudo_false_on_mac() {
+        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        assert!(!GoInstaller.needs_sudo(&p));
+    }
+}

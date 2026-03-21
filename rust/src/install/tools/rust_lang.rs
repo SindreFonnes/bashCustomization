@@ -1,0 +1,46 @@
+use anyhow::Result;
+
+use crate::common::command;
+use crate::common::platform::Platform;
+use crate::install::InstallConfig;
+
+#[derive(Debug, Clone, Copy)]
+pub struct RustInstaller;
+
+impl crate::install::Installer for RustInstaller {
+    fn name(&self) -> &str {
+        "rust"
+    }
+
+    fn needs_sudo(&self, _platform: &Platform) -> bool {
+        false // installs to ~/.cargo
+    }
+
+    fn is_installed(&self) -> bool {
+        command::exists("rustc")
+    }
+
+    fn install(&self, config: &InstallConfig) -> Result<()> {
+        if config.dry_run {
+            println!("  Would install Rust via rustup (curl | sh -s -- -y)");
+            return Ok(());
+        }
+
+        // NixOS: emit declarative guidance
+        if config.platform.is_nixos() {
+            return crate::common::package_manager::nix_guidance("rustc");
+        }
+
+        println!("Installing Rust via rustup...");
+        command::run_visible(
+            "bash",
+            &[
+                "-c",
+                "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+            ],
+        )?;
+
+        println!("Rust installed via rustup");
+        Ok(())
+    }
+}

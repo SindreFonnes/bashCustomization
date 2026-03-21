@@ -1,0 +1,4 @@
+FROM fedora:41
+RUN dnf install -y curl && dnf clean all
+COPY bashc /usr/local/bin/bashc
+RUN chmod +x /usr/local/bin/bashc

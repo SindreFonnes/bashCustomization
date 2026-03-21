@@ -1,0 +1,4 @@
+FROM nixos/nix:latest
+RUN mkdir -p /etc && echo "ID=nixos" > /etc/os-release
+COPY bashc /root/.nix-profile/bin/bashc
+RUN chmod +x /root/.nix-profile/bin/bashc
