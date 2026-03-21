@@ -28,8 +28,9 @@ impl crate::install::Installer for GoInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        // Needs sudo on Linux for /usr/local/go extraction (only if no brew)
-        platform.is_linux() && !package_manager::has_brew()
+        // Needs sudo on Linux for /usr/local/go extraction (only if no brew).
+        // NixOS emits guidance only, no root needed.
+        platform.is_linux() && !platform.is_nixos() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {

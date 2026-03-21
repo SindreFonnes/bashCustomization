@@ -79,8 +79,8 @@ Sub-modules can be split further as coverage grows (e.g.,
   `REBUILD_IMAGES` environment variable is set
 - Execute commands inside a running container and return structured results:
   stdout, stderr, and exit code as separate fields
-- Cleanup on drop — stop and remove the container so tests don't leak
-  containers
+- Cleanup on next run — leftover containers from a previous run are detected
+  and removed when a new container with the same name is created
 - One container instance shared across all tests within a distro module
 
 ### Distro configuration (`src/distro.rs`)

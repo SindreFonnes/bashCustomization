@@ -12,7 +12,7 @@ impl crate::install::Installer for KubectlInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_linux() && !package_manager::has_brew()
+        platform.is_linux() && !platform.is_nixos() && !package_manager::has_brew()
     }
 
     fn is_installed(&self) -> bool {

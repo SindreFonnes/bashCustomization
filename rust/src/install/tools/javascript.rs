@@ -11,9 +11,10 @@ impl crate::install::Installer for JavaScriptInstaller {
         "javascript"
     }
 
-    fn needs_sudo(&self, platform: &Platform) -> bool {
-        // yarn via apt needs sudo if no brew
-        platform.is_linux() && !package_manager::has_brew()
+    fn needs_sudo(&self, _platform: &Platform) -> bool {
+        // nvm installs to ~/.nvm, pnpm/bun to user dirs, yarn via npm -g
+        // under nvm — none require root
+        false
     }
 
     fn is_installed(&self) -> bool {

@@ -70,10 +70,18 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
             return result;
         }
 
-        // Activate brew in current session
+        // Activate brew in current process by parsing `brew shellenv`
         if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
             let shellenv = command::run("/opt/homebrew/bin/brew", &["shellenv"])?;
-            command::run_visible("bash", &["-c", &shellenv])?;
+            for line in shellenv.lines() {
+                if let Some(rest) = line.strip_prefix("export ") {
+                    if let Some((key, value)) = rest.split_once('=') {
+                        let value = value.trim_matches('"').trim_matches(';');
+                        // SAFETY: runs during single-threaded init
+                        unsafe { std::env::set_var(key, value); }
+                    }
+                }
+            }
         }
     } else if platform.is_linux() {
         let result = command::run_visible(
@@ -225,9 +233,10 @@ pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
         let cmd = format!("curl -fsSL '{}' -o '{}'", url, keyring_path);
         privilege::run_privileged("bash", &["-c", &cmd])
     } else {
-        // ASCII-armored key (.asc or bare) — download and dearmor
+        // ASCII-armored key (.asc or bare) — ensure gpg is available, then dearmor
         let cmd = format!(
-            "curl -fsSL '{}' | gpg --dearmor -o '{}'",
+            "if ! command -v gpg >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq gnupg; fi; \
+             curl -fsSL '{}' | gpg --dearmor -o '{}'",
             url, keyring_path
         );
         privilege::run_privileged("bash", &["-c", &cmd])
