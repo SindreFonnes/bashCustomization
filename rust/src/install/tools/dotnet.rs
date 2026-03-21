@@ -81,7 +81,11 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
 fn read_os_release() -> Result<(String, String)> {
     let content = std::fs::read_to_string("/etc/os-release")
         .map_err(|_| anyhow::anyhow!("Cannot read /etc/os-release — unable to detect distro"))?;
+    parse_os_release_content(&content)
+}
 
+/// Parse ID and VERSION_ID from os-release content.
+fn parse_os_release_content(content: &str) -> Result<(String, String)> {
     let mut id = String::new();
     let mut version_id = String::new();
 
@@ -112,4 +116,48 @@ fn get_codename() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ubuntu_os_release() {
+        let content = "ID=ubuntu\nVERSION_ID=\"22.04\"\n";
+        let (id, ver) = parse_os_release_content(content).unwrap();
+        assert_eq!(id, "ubuntu");
+        assert_eq!(ver, "22.04");
+    }
+
+    #[test]
+    fn parse_debian_os_release() {
+        let content = "ID=debian\nVERSION_ID=\"12\"\n";
+        let (id, ver) = parse_os_release_content(content).unwrap();
+        assert_eq!(id, "debian");
+        assert_eq!(ver, "12");
+    }
+
+    #[test]
+    fn parse_missing_id_errors() {
+        let content = "VERSION_ID=\"22.04\"\n";
+        let result = parse_os_release_content(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("distro ID"));
+    }
+
+    #[test]
+    fn parse_missing_version_id_errors() {
+        let content = "ID=ubuntu\n";
+        let result = parse_os_release_content(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("VERSION_ID"));
+    }
+
+    #[test]
+    fn parse_empty_version_id_errors() {
+        let content = "ID=ubuntu\nVERSION_ID=\n";
+        let result = parse_os_release_content(content);
+        assert!(result.is_err());
+    }
 }

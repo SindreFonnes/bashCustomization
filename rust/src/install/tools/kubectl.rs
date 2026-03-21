@@ -85,3 +85,22 @@ fn install_kubectl_direct(platform: &Platform) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    #[test]
+    fn needs_sudo_false_on_nixos() {
+        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        assert!(!KubectlInstaller.needs_sudo(&p), "NixOS should not need sudo (guidance only)");
+    }
+
+    #[test]
+    fn needs_sudo_false_on_mac() {
+        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        assert!(!KubectlInstaller.needs_sudo(&p));
+    }
+}

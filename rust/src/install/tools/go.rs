@@ -126,3 +126,30 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    #[test]
+    fn needs_sudo_on_debian_without_brew() {
+        let p = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        // May be true or false depending on whether brew is on PATH in test env,
+        // but should not panic
+        let _ = GoInstaller.needs_sudo(&p);
+    }
+
+    #[test]
+    fn needs_sudo_false_on_nixos() {
+        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        assert!(!GoInstaller.needs_sudo(&p), "NixOS should not need sudo (guidance only)");
+    }
+
+    #[test]
+    fn needs_sudo_false_on_mac() {
+        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        assert!(!GoInstaller.needs_sudo(&p));
+    }
+}

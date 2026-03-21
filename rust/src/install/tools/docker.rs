@@ -112,20 +112,78 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
 fn get_os_release_id() -> Option<String> {
     let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    parse_os_release_field(&content, "ID=")
+}
+
+fn get_ubuntu_codename() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    parse_os_release_field(&content, "VERSION_CODENAME=")
+}
+
+/// Parse a field from os-release content by prefix.
+fn parse_os_release_field(content: &str, prefix: &str) -> Option<String> {
     for line in content.lines() {
-        if let Some(id) = line.strip_prefix("ID=") {
-            return Some(id.trim_matches('"').to_string());
+        if let Some(val) = line.strip_prefix(prefix) {
+            return Some(val.trim_matches('"').to_string());
         }
     }
     None
 }
 
-fn get_ubuntu_codename() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/os-release").ok()?;
-    for line in content.lines() {
-        if let Some(codename) = line.strip_prefix("VERSION_CODENAME=") {
-            return Some(codename.trim_matches('"').to_string());
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    fn debian() -> Platform {
+        Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 }
     }
-    None
+    fn nixos() -> Platform {
+        Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 }
+    }
+    fn mac() -> Platform {
+        Platform { os: Os::MacOs, arch: Arch::Aarch64 }
+    }
+
+    #[test]
+    fn needs_sudo_on_debian() {
+        assert!(DockerInstaller.needs_sudo(&debian()));
+    }
+
+    #[test]
+    fn needs_sudo_false_on_mac() {
+        assert!(!DockerInstaller.needs_sudo(&mac()));
+    }
+
+    #[test]
+    fn needs_sudo_false_on_nixos() {
+        assert!(!DockerInstaller.needs_sudo(&nixos()));
+    }
+
+    #[test]
+    fn parse_os_release_field_ubuntu() {
+        let content = "NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"22.04\"\nVERSION_CODENAME=jammy\n";
+        assert_eq!(parse_os_release_field(content, "ID="), Some("ubuntu".into()));
+        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME="), Some("jammy".into()));
+    }
+
+    #[test]
+    fn parse_os_release_field_debian() {
+        let content = "ID=debian\nVERSION_CODENAME=bookworm\n";
+        assert_eq!(parse_os_release_field(content, "ID="), Some("debian".into()));
+        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME="), Some("bookworm".into()));
+    }
+
+    #[test]
+    fn parse_os_release_field_missing() {
+        let content = "NAME=\"Ubuntu\"\n";
+        assert_eq!(parse_os_release_field(content, "ID="), None);
+    }
+
+    #[test]
+    fn parse_os_release_field_quoted() {
+        let content = "ID=\"ubuntu\"\n";
+        assert_eq!(parse_os_release_field(content, "ID="), Some("ubuntu".into()));
+    }
 }

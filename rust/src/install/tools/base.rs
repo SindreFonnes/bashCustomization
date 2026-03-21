@@ -102,3 +102,58 @@ fn install_base_linux() -> Result<()> {
     println!("Base packages installed");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    #[test]
+    fn needs_sudo_on_debian() {
+        let p = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        assert!(BaseInstaller.needs_sudo(&p));
+    }
+
+    #[test]
+    fn needs_sudo_false_on_mac() {
+        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        assert!(!BaseInstaller.needs_sudo(&p));
+    }
+
+    #[test]
+    fn needs_sudo_false_on_nixos() {
+        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        assert!(!BaseInstaller.needs_sudo(&p));
+    }
+
+    #[test]
+    fn is_installed_always_false() {
+        assert!(!BaseInstaller.is_installed());
+    }
+
+    #[test]
+    fn unsupported_distro_errors() {
+        let config = crate::install::InstallConfig {
+            platform: Platform { os: Os::Linux(Distro::Fedora), arch: Arch::X86_64 },
+            dry_run: false,
+            verbose: false,
+            interactive: false,
+        };
+        let result = BaseInstaller.install(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not yet configured"));
+    }
+
+    #[test]
+    fn nixos_returns_guidance() {
+        let config = crate::install::InstallConfig {
+            platform: Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 },
+            dry_run: false,
+            verbose: false,
+            interactive: false,
+        };
+        // NixOS guidance returns Ok (prints advice)
+        assert!(BaseInstaller.install(&config).is_ok());
+    }
+}

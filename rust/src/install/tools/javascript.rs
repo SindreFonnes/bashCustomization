@@ -127,3 +127,23 @@ fn install_yarn(config: &InstallConfig) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
+    use crate::install::Installer;
+
+    #[test]
+    fn needs_sudo_always_false() {
+        let platforms = [
+            Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 },
+            Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 },
+            Platform { os: Os::MacOs, arch: Arch::Aarch64 },
+            Platform { os: Os::Linux(Distro::Fedora), arch: Arch::X86_64 },
+        ];
+        for p in &platforms {
+            assert!(!JavaScriptInstaller.needs_sudo(p), "needs_sudo should be false for {p}");
+        }
+    }
+}
