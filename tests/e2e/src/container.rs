@@ -54,8 +54,10 @@ impl TestContainer {
         let mut stream = docker.build_image(options, None, Some(tar_bytes.into()));
 
         while let Some(msg) = stream.next().await {
-            // Consume the stream; propagate errors.
-            let _info = msg.context("docker image build stream error")?;
+            let info = msg.context("docker image build stream error")?;
+            if let Some(err) = info.error {
+                anyhow::bail!("Docker build error: {err}");
+            }
         }
 
         Ok(())
@@ -277,14 +279,50 @@ impl TestContainer {
     }
 }
 
+/// Directories to exclude from the Docker build context tar archive.
+const TAR_EXCLUDE_DIRS: &[&str] = &[".git", "target", "rust/target", "node_modules"];
+
 /// Create a tar archive from a directory, suitable for sending to the Docker build API.
+///
+/// Excludes `.git`, `target`, and other large directories that are not needed
+/// for Docker builds.
 fn create_tar_archive(context_path: &Path) -> Result<Vec<u8>> {
     let mut archive = tar::Builder::new(Vec::new());
-    archive
-        .append_dir_all(".", context_path)
-        .with_context(|| format!("adding {} to tar archive", context_path.display()))?;
+    append_dir_filtered(&mut archive, context_path, context_path)?;
     let bytes = archive
         .into_inner()
         .context("finalizing tar archive")?;
     Ok(bytes)
+}
+
+/// Recursively append directory entries to a tar archive, skipping excluded dirs.
+fn append_dir_filtered(
+    archive: &mut tar::Builder<Vec<u8>>,
+    base: &Path,
+    current: &Path,
+) -> Result<()> {
+    for entry in std::fs::read_dir(current)
+        .with_context(|| format!("reading directory {}", current.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(base)
+            .unwrap_or(&path)
+            .to_string_lossy();
+
+        // Skip excluded directories.
+        if path.is_dir() && TAR_EXCLUDE_DIRS.iter().any(|ex| rel == *ex) {
+            continue;
+        }
+
+        if path.is_dir() {
+            append_dir_filtered(archive, base, &path)?;
+        } else {
+            archive
+                .append_path_with_name(&path, &*rel)
+                .with_context(|| format!("adding {} to tar", path.display()))?;
+        }
+    }
+    Ok(())
 }

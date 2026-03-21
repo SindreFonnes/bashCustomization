@@ -6,6 +6,7 @@ use crate::setup;
 /// apt cache, so this test simply confirms the package index is usable.
 #[tokio::test]
 async fn apt_update_succeeds() {
+    let _lock = setup::apt_install_lock().await;
     let container = setup::get_container().await;
     let result = container
         .exec(&["apt-get", "update", "-qq"])

@@ -41,6 +41,15 @@ async fn assert_tool_stub(tool: &str) {
         result.stderr
     );
 
+    // Must exit non-zero for stubbed/unsupported tools.
+    assert!(
+        result.exit_code != 0,
+        "expected non-zero exit code for stubbed tool '{}', got 0\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        tool,
+        result.stdout,
+        result.stderr
+    );
+
     // Must contain a helpful stub message.
     let combined = format!("{}{}", result.stdout, result.stderr);
     let contains_message = combined.contains("not yet supported")

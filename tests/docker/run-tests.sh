@@ -53,13 +53,13 @@ build_binaries() {
 
     # Build a statically-linked musl binary via Docker (works on all Linux distros)
     say "  Building statically-linked bashc binary (this may take a few minutes on first run)..."
-    if docker build --output "type=local,dest=$BUILD_DIR" \
-        -f "$DOCKER_DIR/Dockerfile.builder" "$REPO_ROOT" 2>&1 | tail -3; then
-        true
-    else
+    build_output=$(docker build --output "type=local,dest=$BUILD_DIR" \
+        -f "$DOCKER_DIR/Dockerfile.builder" "$REPO_ROOT" 2>&1) || {
+        printf '%s\n' "$build_output" | tail -10
         say "  ${RED}Docker build failed${NC}"
         exit 1
-    fi
+    }
+    printf '%s\n' "$build_output" | tail -3
 
     printf '  Binaries ready in %s\n\n' "$BUILD_DIR"
 }
@@ -102,7 +102,7 @@ test_dry_run() {
         return
     }
 
-    if echo "$output" | grep -qi "$expected_distro_label"; then
+    if echo "$output" | grep -Eqi "$expected_distro_label"; then
         log_pass "$test_name"
     else
         log_fail "$test_name" "output missing distro label '$expected_distro_label'"
@@ -135,7 +135,7 @@ test_stub_message() {
     # A real install should fail with "not yet supported", not crash
     output=$(run_in "$distro" "bashc install ripgrep 2>&1; exit 0")
 
-    if echo "$output" | grep -qi "not yet supported\|not yet implemented\|not yet configured"; then
+    if echo "$output" | grep -Eqi "not yet supported|not yet implemented|not yet configured"; then
         log_pass "$test_name"
     else
         log_fail "$test_name" "expected 'not yet supported' message"
@@ -170,7 +170,7 @@ test_nixos_guidance() {
     }
 
     # NixOS dry-run should mention the distro
-    if echo "$output" | grep -qi "NixOS\|nixos"; then
+    if echo "$output" | grep -Eqi "NixOS|nixos"; then
         log_pass "$test_name"
     else
         log_fail "$test_name" "output missing NixOS reference"
@@ -216,7 +216,7 @@ for distro in $distros; do
         fedora)  label="Fedora" ;;
         arch)    label="Arch" ;;
         alpine)  label="Alpine" ;;
-        nixos)   label="NixOS\|nixos\|Unknown" ;;
+        nixos)   label="NixOS|nixos|Unknown" ;;
     esac
 
     if docker image inspect "bashc-test-$distro" >/dev/null 2>&1; then
