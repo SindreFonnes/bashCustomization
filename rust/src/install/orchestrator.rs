@@ -321,3 +321,74 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         println!("\nFailed tools can be retried individually: bashc install <tool>");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::platform::{Arch, Distro, Os, Platform};
+
+    fn test_config(dry_run: bool) -> InstallConfig {
+        InstallConfig {
+            platform: Platform {
+                os: Os::Linux(Distro::Debian),
+                arch: Arch::X86_64,
+            },
+            dry_run,
+            verbose: false,
+            interactive: false,
+        }
+    }
+
+    #[test]
+    fn run_by_name_unknown_tool_returns_error() {
+        let config = test_config(false);
+        let result = run_by_name("nonexistent_tool_xyz", &config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("unknown tool"),
+            "expected 'unknown tool' in error: {msg}"
+        );
+    }
+
+    #[test]
+    fn run_by_name_dry_run_succeeds() {
+        let config = test_config(true);
+        // dry-run should always succeed (tools are skipped, not executed)
+        let result = run_by_name("ripgrep", &config);
+        assert!(result.is_ok(), "dry-run should not fail: {result:?}");
+    }
+
+    #[test]
+    fn run_one_skips_installed_tool() {
+        // Go is likely not installed in the test env, but if it is, it should skip
+        let config = test_config(false);
+        for &tool in ALL_TOOLS {
+            if tool.is_installed() {
+                let outcome = run_one(&tool, &config);
+                assert!(
+                    matches!(outcome, InstallOutcome::Skipped(_)),
+                    "installed tool {} should be skipped",
+                    tool.name()
+                );
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn run_one_dry_run_skips() {
+        let config = test_config(true);
+        let tool = find_tool("ripgrep").unwrap();
+        let outcome = run_one(&tool, &config);
+        match outcome {
+            InstallOutcome::Skipped(reason) => {
+                assert!(
+                    reason.contains("dry-run") || reason.contains("already installed"),
+                    "unexpected skip reason: {reason}"
+                );
+            }
+            _ => panic!("expected Skipped outcome in dry-run mode"),
+        }
+    }
+}

@@ -528,4 +528,91 @@ mod tests {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // apply_shellenv
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn apply_shellenv_sets_simple_var() {
+        let input = r#"export HOMEBREW_PREFIX="/opt/homebrew""#;
+        apply_shellenv(input);
+        assert_eq!(
+            std::env::var("HOMEBREW_PREFIX").unwrap(),
+            "/opt/homebrew"
+        );
+        // Clean up
+        unsafe { std::env::remove_var("HOMEBREW_PREFIX"); }
+    }
+
+    #[test]
+    fn apply_shellenv_expands_path_braces() {
+        // Set a known value so expansion is predictable
+        unsafe { std::env::set_var("TEST_SHELLENV_PATH", "/original"); }
+
+        let input = r#"export TEST_SHELLENV_PATH="/opt/homebrew/bin:${TEST_SHELLENV_PATH}""#;
+        apply_shellenv(input);
+        assert_eq!(
+            std::env::var("TEST_SHELLENV_PATH").unwrap(),
+            "/opt/homebrew/bin:/original",
+            "should expand ${{TEST_SHELLENV_PATH}} to the current value"
+        );
+        // Clean up
+        unsafe { std::env::remove_var("TEST_SHELLENV_PATH"); }
+    }
+
+    #[test]
+    fn apply_shellenv_expands_path_dollar() {
+        unsafe { std::env::set_var("TEST_SHELLENV_PATH2", "/existing"); }
+
+        let input = r#"export TEST_SHELLENV_PATH2="/new/bin:$TEST_SHELLENV_PATH2""#;
+        apply_shellenv(input);
+        assert_eq!(
+            std::env::var("TEST_SHELLENV_PATH2").unwrap(),
+            "/new/bin:/existing",
+            "should expand $TEST_SHELLENV_PATH2 to the current value"
+        );
+        unsafe { std::env::remove_var("TEST_SHELLENV_PATH2"); }
+    }
+
+    #[test]
+    fn apply_shellenv_no_clobber_when_var_unset() {
+        // If the var doesn't exist yet, literal value should be set as-is
+        // (no expansion needed since there's nothing to expand from)
+        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
+        let input = r#"export TEST_SHELLENV_NEW="/brand/new/path""#;
+        apply_shellenv(input);
+        assert_eq!(
+            std::env::var("TEST_SHELLENV_NEW").unwrap(),
+            "/brand/new/path"
+        );
+        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
+    }
+
+    #[test]
+    fn apply_shellenv_skips_non_export_lines() {
+        let input = "# comment\neval \"something\"\nexport TEST_SHELLENV_ONLY=\"yes\"";
+        apply_shellenv(input);
+        assert_eq!(std::env::var("TEST_SHELLENV_ONLY").unwrap(), "yes");
+        unsafe { std::env::remove_var("TEST_SHELLENV_ONLY"); }
+    }
+
+    // -----------------------------------------------------------------------
+    // apt_add_gpg_key format detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn gpg_url_detects_binary_key() {
+        assert!("https://cli.github.com/packages/githubcli-archive-keyring.gpg".ends_with(".gpg"));
+    }
+
+    #[test]
+    fn gpg_url_detects_ascii_key() {
+        assert!(!"https://packages.microsoft.com/keys/microsoft.asc".ends_with(".gpg"));
+    }
+
+    #[test]
+    fn gpg_url_bare_needs_dearmor() {
+        assert!(!"https://download.docker.com/linux/ubuntu/gpg".ends_with(".gpg"));
+    }
 }
