@@ -18,13 +18,11 @@ impl crate::install::Installer for JavaScriptInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        // Consider installed if nvm is present (the base dependency)
-        std::env::var("NVM_DIR").is_ok()
-            && std::path::Path::new(&format!(
-                "{}/.nvm/nvm.sh",
-                std::env::var("HOME").unwrap_or_default()
-            ))
-            .exists()
+        // Consider installed if nvm.sh exists (the base dependency).
+        // Check $NVM_DIR first, fall back to $HOME/.nvm.
+        let nvm_dir = std::env::var("NVM_DIR")
+            .unwrap_or_else(|_| format!("{}/.nvm", std::env::var("HOME").unwrap_or_default()));
+        std::path::Path::new(&format!("{nvm_dir}/nvm.sh")).exists()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {

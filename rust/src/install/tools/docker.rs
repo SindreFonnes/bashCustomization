@@ -12,10 +12,9 @@ impl crate::install::Installer for DockerInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        // On macOS, brew doesn't need sudo. On Debian Linux, apt needs sudo.
-        // NixOS, Arch, Alpine, and other distros without brew will error rather
-        // than using apt, so sudo is not needed for them.
-        platform.is_debian() && !package_manager::has_brew()
+        // On macOS, brew cask doesn't need sudo. On Debian/Ubuntu Linux,
+        // the apt-based install always needs root regardless of brew.
+        platform.is_debian()
     }
 
     fn is_installed(&self) -> bool {
@@ -71,8 +70,14 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
     let dpkg_arch = platform.go_arch();
 
-    // Detect codename from os-release
-    let codename = get_ubuntu_codename().unwrap_or_else(|| "jammy".to_string());
+    // Detect codename from os-release — fail if missing rather than
+    // silently using a wrong default for the wrong distro.
+    let codename = get_ubuntu_codename().ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not determine VERSION_CODENAME from /etc/os-release — \
+             cannot configure Docker apt repository"
+        )
+    })?;
 
     let repo_line = format!(
         "deb [arch={dpkg_arch} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/{docker_distro} {codename} stable"

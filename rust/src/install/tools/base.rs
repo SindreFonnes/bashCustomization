@@ -12,7 +12,8 @@ impl crate::install::Installer for BaseInstaller {
     }
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
-        platform.is_debian() && !package_manager::has_brew()
+        // Base packages on Debian always use apt, which needs root
+        platform.is_debian()
     }
 
     fn is_installed(&self) -> bool {
