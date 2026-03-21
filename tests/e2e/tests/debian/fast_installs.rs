@@ -78,7 +78,7 @@ async fn ensure_eza_installed() {
 }
 
 #[tokio::test]
-async fn install_eza_exits_zero() {
+async fn install_eza_does_not_panic() {
     ensure_eza_installed().await;
 }
 

@@ -54,6 +54,11 @@ impl crate::install::Installer for GoInstaller {
             return package_manager::brew_install("go");
         }
 
+        // NixOS: emit declarative guidance
+        if platform.is_nixos() {
+            return package_manager::nix_guidance("go");
+        }
+
         // Fallback: direct download
         install_go_direct(platform)
     }

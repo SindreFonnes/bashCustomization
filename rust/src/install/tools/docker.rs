@@ -55,25 +55,27 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
         );
     }
 
+    // Determine the distro ID (ubuntu or debian) for the correct Docker repo
+    let distro_id = get_os_release_id().unwrap_or_else(|| "ubuntu".to_string());
+    let docker_distro = match distro_id.as_str() {
+        "debian" => "debian",
+        _ => "ubuntu", // Ubuntu and derivatives use the ubuntu repo
+    };
+
     println!("Adding Docker GPG key...");
+    let gpg_url = format!("https://download.docker.com/linux/{docker_distro}/gpg");
     package_manager::apt_add_gpg_key(
-        "https://download.docker.com/linux/ubuntu/gpg",
+        &gpg_url,
         "/etc/apt/keyrings/docker.gpg",
     )?;
 
-    let arch = platform.go_arch();
-    // Use dpkg arch naming: amd64 or arm64
-    let dpkg_arch = match arch {
-        "amd64" => "amd64",
-        "arm64" => "arm64",
-        _ => arch,
-    };
+    let dpkg_arch = platform.go_arch();
 
     // Detect codename from os-release
     let codename = get_ubuntu_codename().unwrap_or_else(|| "jammy".to_string());
 
     let repo_line = format!(
-        "deb [arch={dpkg_arch} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {codename} stable"
+        "deb [arch={dpkg_arch} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/{docker_distro} {codename} stable"
     );
 
     println!("Adding Docker apt repository...");
@@ -101,6 +103,16 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
     println!("Docker Engine installed ({packages})");
     Ok(())
+}
+
+fn get_os_release_id() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    for line in content.lines() {
+        if let Some(id) = line.strip_prefix("ID=") {
+            return Some(id.trim_matches('"').to_string());
+        }
+    }
+    None
 }
 
 fn get_ubuntu_codename() -> Option<String> {

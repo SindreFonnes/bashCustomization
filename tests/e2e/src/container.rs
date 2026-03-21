@@ -117,6 +117,7 @@ impl TestContainer {
 
         // Parse the tar and extract the file.
         let mut archive = tar::Archive::new(tar_bytes.as_slice());
+        let mut extracted = false;
         for entry in archive.entries().context("reading tar entries")? {
             let mut entry = entry.context("reading tar entry")?;
             let mut contents = Vec::new();
@@ -132,7 +133,14 @@ impl TestContainer {
                 let perms = std::fs::Permissions::from_mode(0o755);
                 std::fs::set_permissions(dest_path, perms)?;
             }
+            extracted = true;
             break; // Only one file expected.
+        }
+
+        if !extracted {
+            anyhow::bail!(
+                "no file found in container at /bashc — builder image may be broken"
+            );
         }
 
         // Clean up the extractor container.

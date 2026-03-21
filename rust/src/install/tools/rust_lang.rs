@@ -26,6 +26,11 @@ impl crate::install::Installer for RustInstaller {
             return Ok(());
         }
 
+        // NixOS: emit declarative guidance
+        if config.platform.is_nixos() {
+            return crate::common::package_manager::nix_guidance("rustc");
+        }
+
         println!("Installing Rust via rustup...");
         command::run_visible(
             "bash",

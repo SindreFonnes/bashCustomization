@@ -90,11 +90,23 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
             return result;
         }
 
-        // Activate Linuxbrew in current session
+        // Activate Linuxbrew in the current process by parsing `brew shellenv`
+        // output and applying env vars directly (running it in a subprocess
+        // would only affect that subprocess, not us).
         if std::path::Path::new("/home/linuxbrew/.linuxbrew/bin/brew").exists() {
             let shellenv =
                 command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
-            command::run_visible("bash", &["-c", &shellenv])?;
+            for line in shellenv.lines() {
+                // Parse lines like: export HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
+                if let Some(rest) = line.strip_prefix("export ") {
+                    if let Some((key, value)) = rest.split_once('=') {
+                        let value = value.trim_matches('"').trim_matches(';');
+                        // SAFETY: this runs during single-threaded init
+                        // before any parallel tool installs start.
+                        unsafe { std::env::set_var(key, value); }
+                    }
+                }
+            }
         }
     }
 

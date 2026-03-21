@@ -40,6 +40,11 @@ impl crate::install::Installer for KubectlInstaller {
             return Ok(());
         }
 
+        // NixOS: emit declarative guidance
+        if platform.is_nixos() {
+            return package_manager::nix_guidance("kubectl");
+        }
+
         // Fallback: direct download
         install_kubectl_direct(platform)
     }
