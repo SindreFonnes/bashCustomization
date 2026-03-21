@@ -104,9 +104,32 @@ impl TestContainer {
             .await
             .context("create extractor container")?;
 
-        // Copy /bashc out of the container.
+        // Ensure cleanup on all exit paths — if any step below fails,
+        // we still remove the container (best-effort).
+        let result = Self::extract_binary_inner(docker, &container_name, dest_path).await;
+
+        // Clean up the extractor container regardless of success/failure.
+        let _ = docker
+            .remove_container(
+                &container_name,
+                Some(RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+            )
+            .await;
+
+        result
+    }
+
+    /// Inner extraction logic — separated so cleanup runs on all exit paths.
+    async fn extract_binary_inner(
+        docker: &Docker,
+        container_name: &str,
+        dest_path: &Path,
+    ) -> Result<()> {
         let tar_stream = docker
-            .download_from_container(&container_name, Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }));
+            .download_from_container(container_name, Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }));
 
         let mut tar_bytes: Vec<u8> = Vec::new();
         let mut stream = tar_stream;
@@ -115,7 +138,6 @@ impl TestContainer {
             tar_bytes.extend_from_slice(&data);
         }
 
-        // Parse the tar and extract the file.
         let mut archive = tar::Archive::new(tar_bytes.as_slice());
         let mut extracted = false;
         for entry in archive.entries().context("reading tar entries")? {
@@ -126,7 +148,6 @@ impl TestContainer {
                 .context("reading binary from tar entry")?;
             std::fs::write(dest_path, &contents)
                 .with_context(|| format!("writing binary to {}", dest_path.display()))?;
-            // Make it executable (Unix only).
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -134,7 +155,7 @@ impl TestContainer {
                 std::fs::set_permissions(dest_path, perms)?;
             }
             extracted = true;
-            break; // Only one file expected.
+            break;
         }
 
         if !extracted {
@@ -142,18 +163,6 @@ impl TestContainer {
                 "no file found in container at /bashc — builder image may be broken"
             );
         }
-
-        // Clean up the extractor container.
-        docker
-            .remove_container(
-                &container_name,
-                Some(RemoveContainerOptions {
-                    force: true,
-                    ..Default::default()
-                }),
-            )
-            .await
-            .context("removing extractor container")?;
 
         Ok(())
     }

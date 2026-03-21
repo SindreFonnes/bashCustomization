@@ -27,10 +27,10 @@ impl crate::install::Installer for DockerInstaller {
         if config.dry_run {
             if platform.is_mac() {
                 println!("  Would install Docker Desktop via brew cask");
-            } else if package_manager::has_brew() && !package_manager::is_brew_failed() {
-                println!("  Would install docker via brew");
-            } else {
+            } else if platform.is_debian() {
                 println!("  Would install Docker Engine via apt (GPG key + repo)");
+            } else {
+                println!("  Docker install not yet supported on this distro");
             }
             return Ok(());
         }
