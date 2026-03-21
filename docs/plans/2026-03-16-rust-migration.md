@@ -56,7 +56,9 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 ---
 
-## Phase 1: `bashc-install` — Install orchestration binary
+## Phase 1: `bashc-install` — Install orchestration binary ✅
+
+> **Status (2026-03-21):** Phase 1 is complete and merged. The binary name is `bashc` (not `bashc-install`). In addition to the originally planned scope, Phase 1 also delivered: distro-aware platform detection (6 distro families), privilege escalation flexibility (sudo/doas/su), a doas installer (tool #21), NixOS declarative guidance, a full E2E test crate across 6 distros, and phased parallel execution via tokio. Total: 22 installers, 105 unit tests, CI/CD for 5 targets.
 
 **What replaces:** All 20 install scripts in `installScripts/` plus `installNerdFont.sh` from `generalScripts/`, `installScript.sh` menu, `installStuff.sh` base packages, `commonMyinstallFunctions.sh` utility functions.
 
@@ -70,12 +72,12 @@ Identical function exists in `programExtensions/git/functions/gitAddCommitPushTa
 
 See the Phase 1 implementation plan (`docs/plans/2026-03-18-bashc-phase1-implementation.md`) for the detailed file structure and task breakdown.
 
-- [ ] Initialize single crate with `install` and `common` modules
-- [ ] Add dependencies: `clap`, `reqwest`, `sha2`, `semver`, `serde`, `serde_json`, `tokio`, `indicatif`, `dialoguer`, `anyhow`, `libc`
-- [ ] Implement `common::platform` module: OS detection (mac/wsl/linux), arch detection (amd64/arm64), with explicit error on unsupported platforms
-- [ ] Implement `common::version` module: semver comparison (replaces `is_greater_than_current_version`)
-- [ ] Implement `common::download` module: download with progress, checksum verification
-- [ ] Implement `common::package_manager` module: brew-first dispatch on macOS/Debian/Fedora (Linuxbrew on Linux), native package manager on other distros (Arch/NixOS/Alpine)
+- [x] Initialize single crate with `install` and `common` modules
+- [x] Add dependencies: `clap`, `reqwest`, `sha2`, `semver`, `serde`, `serde_json`, `tokio`, `indicatif`, `dialoguer`, `anyhow`, `libc`
+- [x] Implement `common::platform` module: OS detection (mac/wsl/linux), arch detection (amd64/arm64), distro detection (Debian/Ubuntu/Fedora/Arch/Alpine/NixOS), with explicit error on unsupported platforms
+- [x] Implement `common::version` module: semver comparison (replaces `is_greater_than_current_version`)
+- [x] Implement `common::download` module: download with progress, checksum verification
+- [x] Implement `common::package_manager` module: brew-first dispatch on macOS/Debian/Ubuntu/Fedora (Linuxbrew on Linux), native package manager on other distros (Arch/NixOS/Alpine)
 
 ### Task 1.2: Port Go install script
 
@@ -84,69 +86,71 @@ The Go install script is the most mature (has checksum verification, version fet
 **Files:**
 - Create: `rust/src/install/go.rs`
 
-- [ ] Implement Go installer: fetch latest version from go.dev API, detect OS+arch, download, verify sha256, extract, update PATH
-- [ ] Wire into `bashc-install go` subcommand
-- [ ] Test on macOS, verify arm64 detection works (fixes the hardcoded amd64 bug)
+- [x] Implement Go installer: fetch latest version from go.dev API, detect OS+arch, download, verify sha256, extract, update PATH
+- [x] Wire into `bashc-install go` subcommand
+- [x] Test on macOS, verify arm64 detection works (fixes the hardcoded amd64 bug)
 
 ### Task 1.3: Port remaining install scripts
 
 Port all install scripts as Rust subcommands. Priority order based on complexity:
 
-- [ ] `kubectl` — already has checksum verification, benefits from arch detection
-- [ ] `rust` — downloads and runs rustup-init
-- [ ] `docker` — platform-specific (brew on macOS, apt repo on Linux). On WSL, also handle docker group permissions (replaces `fix_docker_insuficient_permissions_wsl.sh`)
-- [ ] `azure` — replace dangerous `curl | sudo bash` with proper apt repo setup
-- [ ] `dotnet` — replace hardcoded Ubuntu 22.04 with dynamic distro detection
-- [ ] `neovim` — appimage is x86-only, needs arch-aware alternative (brew on macOS, appimage or apt on Linux)
-- [ ] `obsidian` — replace HTML scraping with GitHub Releases API
-- [ ] `brew` — macOS only, installs Homebrew
-- [ ] `java` — brew/apt dispatch
-- [ ] `github` — brew/apt dispatch with GPG key setup
-- [ ] `terraform` — brew/apt dispatch with HashiCorp repo
-- [ ] `postgres` — brew/apt dispatch
-- [ ] `javascript` — nvm, pnpm, bun, yarn as sub-installers
-- [ ] `ripgrep` — brew/apt dispatch (simple)
-- [ ] `bat` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `batcat`, needs symlink handling)
-- [ ] `fd` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `fdfind`, needs symlink handling)
-- [ ] `eza` — brew on all platforms, apt on Linux (needs GPG key + third-party repo from deb.gierens.de)
-- [ ] `shellcheck` — brew/apt dispatch (simple)
-- [ ] `nerd-font` — download JetBrains Mono Nerd Font from GitHub Releases API, install to `~/.local/share/fonts`, run `fc-cache` on Linux. Brew cask on macOS (`brew install --cask font-jetbrains-mono-nerd-font`). Replaces `generalScripts/installNerdFont.sh`.
+- [x] `kubectl` — already has checksum verification, benefits from arch detection
+- [x] `rust` — downloads and runs rustup-init
+- [x] `docker` — platform-specific (brew on macOS, apt repo on Linux). On WSL, also handle docker group permissions (replaces `fix_docker_insuficient_permissions_wsl.sh`)
+- [x] `azure` — replace dangerous `curl | sudo bash` with proper apt repo setup
+- [x] `dotnet` — replace hardcoded Ubuntu 22.04 with dynamic distro detection
+- [x] `neovim` — appimage is x86-only, needs arch-aware alternative (brew on macOS, appimage or apt on Linux)
+- [x] `obsidian` — replace HTML scraping with GitHub Releases API
+- [x] `brew` — macOS only, installs Homebrew
+- [x] `java` — brew/apt dispatch
+- [x] `github` — brew/apt dispatch with GPG key setup
+- [x] `terraform` — brew/apt dispatch with HashiCorp repo
+- [x] `postgres` — brew/apt dispatch
+- [x] `javascript` — nvm, pnpm, bun, yarn as sub-installers
+- [x] `ripgrep` — brew/apt dispatch (simple)
+- [x] `bat` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `batcat`, needs symlink handling)
+- [x] `fd` — brew on all platforms, apt on Linux (note: Debian/Ubuntu installs as `fdfind`, needs symlink handling)
+- [x] `eza` — brew on all platforms, apt on Linux (needs GPG key + third-party repo from deb.gierens.de)
+- [x] `shellcheck` — brew/apt dispatch (simple)
+- [x] `nerd-font` — download JetBrains Mono Nerd Font from GitHub Releases API, install to `~/.local/share/fonts`, run `fc-cache` on Linux. Brew cask on macOS (`brew install --cask font-jetbrains-mono-nerd-font`). Replaces `generalScripts/installNerdFont.sh`.
 
 ### Task 1.3.1: Port `installStuff.sh` base packages
 
 The refactored `installStuff.sh` installs brew first, then base packages (git, gnupg via brew; build-essential, git, safe-rm, keychain, nala, gnupg, pkg-config, libssl-dev, zip, unzip, tar, gzip, net-tools, libfuse2, libnss3-tools via apt on Linux), then delegates to the 5 new dedicated install scripts. In the Rust binary, this becomes a `bashc install base` command that installs platform-appropriate base packages before individual tools.
 
-- [ ] Implement `bashc install base` — installs foundational packages (brew packages on macOS, apt packages on Linux)
-- [ ] Ensure `bashc install all` runs `base` as the first phase before individual tool installers
+- [x] Implement `bashc install base` — installs foundational packages (brew packages on macOS, apt packages on Linux)
+- [x] Ensure `bashc install all` runs `base` as the first phase before individual tool installers
 
 ### Task 1.4: Interactive menu and `all` command
 
-- [ ] Implement `bashc-install --interactive` with a proper TUI menu (replaces the fragile positional-parameter case statement in `installScript.sh`)
-- [ ] Implement `bashc-install all` to run all installers sequentially
-- [ ] Update `installMain.sh` to point `run_my_install` at the Rust binary
+- [x] Implement `bashc-install --interactive` with a proper TUI menu (replaces the fragile positional-parameter case statement in `installScript.sh`)
+- [x] Implement `bashc-install all` to run all installers with phased parallel execution
+- [x] Update `installMain.sh` to point `run_my_install` at the Rust binary
 
 ### Task 1.5: GitHub Actions CI/CD for cross-compilation
 
 **Files:**
 - Create: `.github/workflows/release.yml`
 
-- [ ] Set up GitHub Actions workflow triggered on version tags (e.g., `v*`)
-- [ ] Cross-compile for all supported targets: `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
-- [ ] Upload binaries as GitHub Release assets with platform-specific names (e.g., `bashc-install-aarch64-apple-darwin`)
-- [ ] Include SHA256 checksums file in the release
+- [x] Set up GitHub Actions workflow triggered on version tags (e.g., `v*`)
+- [x] Cross-compile for all supported targets: `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`
+- [x] Upload binaries as GitHub Release assets with platform-specific names (e.g., `bashc-aarch64-apple-darwin`)
+- [x] Include SHA256 checksums file in the release
 
 ### Task 1.6: Bootstrap init script
 
 **Files:**
 - Create: `init.sh` (replaces current `init_repo.sh`)
 
-- [ ] Write thin POSIX-compatible bootstrap script (~30 lines) that:
+- [x] Write POSIX-compatible bootstrap script that:
   - Detects OS (macOS/Linux) and architecture (x86_64/aarch64)
+  - Detects distro for musl vs gnu target selection (Alpine → musl)
+  - Bootstraps doas on Alpine when running as root with no privilege tool
   - Errors clearly on unsupported platforms
-  - Downloads the correct `bashc-install` binary from the latest GitHub Release
+  - Downloads the correct `bashc` binary from the latest GitHub Release
   - Verifies the download checksum
   - Makes the binary executable and runs it
-- [ ] `bashc-install` then handles: git configuration, tool installation, shell setup
+- [x] `bashc` then handles: tool installation via `bashc install all`
 - [ ] Deprecate/remove `init_repo.sh` once `init.sh` is proven
 
 ---

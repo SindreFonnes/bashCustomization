@@ -1,71 +1,36 @@
 # Known Issues
 
-## Ubuntu-specific assumptions in installers
+## Resolved (2026-03-21)
 
-Several installers assume Ubuntu when they should support both Ubuntu and
-plain Debian (and eventually other Debian derivatives). These work correctly
-on Ubuntu but may fail or produce incorrect results on Debian.
+The following Ubuntu/Debian issues have been fixed by adding a `Distro::Ubuntu`
+variant to the platform enum and a shared `get_apt_codename()` helper:
 
-### Docker (`src/install/tools/docker.rs`)
+- **Docker**: now uses correct repo URL per distro (`linux/ubuntu` vs `linux/debian`)
+- **Azure CLI, .NET SDK, Terraform**: no longer fall back to `"jammy"` — error
+  if `VERSION_CODENAME` is missing instead of silently using wrong codename
+- **Base packages**: `add-apt-repository universe` is now guarded behind an
+  Ubuntu check (skipped on plain Debian)
 
-**Severity: Bug**
+## Remaining issues
 
-The apt repo URL is hardcoded to `download.docker.com/linux/ubuntu`. On plain
-Debian it should use `download.docker.com/linux/debian`. The GPG key URL is
-also Ubuntu-specific. The codename falls back to `"jammy"` (Ubuntu 22.04) when
-`VERSION_CODENAME` is missing — on Debian this should fall back to `"bookworm"`
-or detect based on `ID`.
+### Non-Debian Linux distro support is stub-only
 
-**Fix:** Read `ID` from `/etc/os-release` (already parsed by `Platform`) and
-use the correct Docker repo path (`linux/ubuntu` vs `linux/debian`). Each has
-different codename schemes.
+Fedora/dnf, Arch/pacman, and Alpine/apk package manager backends return "not
+yet implemented" errors. These distros are detected but cannot install most
+tools through native package managers. Homebrew is available as a workaround
+on Fedora.
 
-### Azure CLI (`src/install/tools/azure.rs`)
+### Base package list may not be fully Debian-compatible
 
-**Severity: Minor**
+- `nala` — may not be available in all Debian versions or repos
+- `safe-rm` — may not be in all Debian repos
 
-Falls back to codename `"jammy"` when `VERSION_CODENAME` is not found. The
-Azure CLI apt repo is distro-agnostic (works with codenames from both Ubuntu
-and Debian), but if the codename detection fails it would use an Ubuntu
-codename on Debian. In practice `VERSION_CODENAME` is almost always present
-in `/etc/os-release`, so this rarely triggers.
+These packages are installed via `apt-get install -y` which will skip
+unavailable packages if they're in a batch install, but individual failures
+aren't caught.
 
-### .NET SDK (`src/install/tools/dotnet.rs`)
+### No self-install mechanism
 
-**Severity: Minor**
-
-Same fallback-to-`"jammy"` issue. Microsoft's dotnet repo may not have
-packages for all Debian codenames, and using an Ubuntu codename on Debian
-could install incompatible packages.
-
-### Terraform (`src/install/tools/terraform.rs`)
-
-**Severity: Minor**
-
-Falls back to codename `"jammy"`. HashiCorp's repo supports both Ubuntu and
-Debian codenames, but using the wrong one would fail to find packages.
-
-### Base packages (`src/install/tools/base.rs`)
-
-**Severity: Minor**
-
-- Calls `add-apt-repository universe -y` — the `universe` repo is
-  Ubuntu-specific. Debian does not have a `universe` repo (equivalent packages
-  are in `main`). The `add-apt-repository` command may not exist on plain
-  Debian without `software-properties-common`. Currently wrapped in
-  `let _ =` so failures are silently ignored.
-- Includes `nala` in the package list — may not be available in all Debian
-  versions or repos.
-- Includes `safe-rm` — may not be in all Debian repos.
-
-## Recommended fix
-
-The `Platform` struct already knows the distro and could differentiate Ubuntu
-from Debian. A shared helper like `get_apt_codename(platform)` could return
-the correct codename and repo base URL based on both `ID` and
-`VERSION_CODENAME` from `/etc/os-release`, eliminating the `"jammy"` fallback
-across all four installers.
-
-For base.rs, the `universe` repo command should be guarded behind an Ubuntu
-check (not just Debian-family), and the package list should be reviewed for
-Debian compatibility.
+There is no `bashc install bashc` command to install the binary to a permanent
+location (e.g., `~/.local/bin`). Currently, `init.sh` downloads to a temp
+directory and runs it, but doesn't persist the binary.

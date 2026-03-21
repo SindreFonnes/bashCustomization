@@ -37,7 +37,7 @@ impl crate::install::Installer for BaseInstaller {
         if platform.is_mac() {
             install_base_mac()?;
         } else if platform.is_debian() {
-            install_base_linux()?;
+            install_base_linux(platform)?;
         } else if platform.is_nixos() {
             return package_manager::nix_guidance("base development tools");
         } else if platform.is_linux() {
@@ -67,9 +67,12 @@ fn install_base_mac() -> Result<()> {
     Ok(())
 }
 
-fn install_base_linux() -> Result<()> {
-    println!("Adding universe repository...");
-    let _ = privilege::run_privileged("add-apt-repository", &["universe", "-y"]);
+fn install_base_linux(platform: &Platform) -> Result<()> {
+    // The universe repo is Ubuntu-specific; Debian has equivalent packages in main
+    if platform.is_ubuntu() {
+        println!("Adding universe repository...");
+        let _ = privilege::run_privileged("add-apt-repository", &["universe", "-y"]);
+    }
 
     let packages = [
         "build-essential",

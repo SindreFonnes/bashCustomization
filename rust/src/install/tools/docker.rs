@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::Platform, privilege};
+use crate::common::{command, package_manager, platform::{self, Platform}, privilege};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -54,12 +54,8 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
         );
     }
 
-    // Determine the distro ID (ubuntu or debian) for the correct Docker repo
-    let distro_id = get_os_release_id().unwrap_or_else(|| "ubuntu".to_string());
-    let docker_distro = match distro_id.as_str() {
-        "debian" => "debian",
-        _ => "ubuntu", // Ubuntu and derivatives use the ubuntu repo
-    };
+    // Docker uses separate repo paths for ubuntu vs debian
+    let docker_distro = if platform.is_ubuntu() { "ubuntu" } else { "debian" };
 
     println!("Adding Docker GPG key...");
     let gpg_url = format!("https://download.docker.com/linux/{docker_distro}/gpg");
@@ -70,9 +66,7 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
     let dpkg_arch = platform.go_arch();
 
-    // Detect codename from os-release — fail if missing rather than
-    // silently using a wrong default for the wrong distro.
-    let codename = get_ubuntu_codename().ok_or_else(|| {
+    let codename = platform::get_apt_codename().ok_or_else(|| {
         anyhow::anyhow!(
             "could not determine VERSION_CODENAME from /etc/os-release — \
              cannot configure Docker apt repository"
@@ -110,34 +104,21 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
     Ok(())
 }
 
-fn get_os_release_id() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/os-release").ok()?;
-    parse_os_release_field(&content, "ID=")
-}
-
-fn get_ubuntu_codename() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/os-release").ok()?;
-    parse_os_release_field(&content, "VERSION_CODENAME=")
-}
-
-/// Parse a field from os-release content by prefix.
-fn parse_os_release_field(content: &str, prefix: &str) -> Option<String> {
-    for line in content.lines() {
-        if let Some(val) = line.strip_prefix(prefix) {
-            return Some(val.trim_matches('"').to_string());
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::platform::{Arch, Distro, Os};
+    use crate::common::platform::{self, Arch, Distro, Os};
     use crate::install::Installer;
+
+    fn parse_os_release_field(content: &str, key: &str) -> Option<String> {
+        platform::parse_os_release_field(content, key.trim_end_matches('='))
+    }
 
     fn debian() -> Platform {
         Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 }
+    }
+    fn ubuntu() -> Platform {
+        Platform { os: Os::Linux(Distro::Ubuntu), arch: Arch::X86_64 }
     }
     fn nixos() -> Platform {
         Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 }
@@ -149,6 +130,11 @@ mod tests {
     #[test]
     fn needs_sudo_on_debian() {
         assert!(DockerInstaller.needs_sudo(&debian()));
+    }
+
+    #[test]
+    fn needs_sudo_on_ubuntu() {
+        assert!(DockerInstaller.needs_sudo(&ubuntu()));
     }
 
     #[test]

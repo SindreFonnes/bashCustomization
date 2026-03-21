@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::Platform};
+use crate::common::{command, package_manager, platform::{self, Platform}};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -60,9 +60,15 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
         "/etc/apt/keyrings/microsoft.gpg",
     )?;
 
+    let codename = platform::get_apt_codename().ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not determine VERSION_CODENAME from /etc/os-release — \
+             cannot configure .NET SDK apt repository"
+        )
+    })?;
+
     let repo_line = format!(
-        "deb [signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/{distro_id}/{version_id}/prod {} main",
-        get_codename().unwrap_or_else(|| "jammy".to_string())
+        "deb [signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/{distro_id}/{version_id}/prod {codename} main"
     );
 
     println!("Adding Microsoft apt repository...");
@@ -106,16 +112,6 @@ fn parse_os_release_content(content: &str) -> Result<(String, String)> {
     }
 
     Ok((id, version_id))
-}
-
-fn get_codename() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/os-release").ok()?;
-    for line in content.lines() {
-        if let Some(codename) = line.strip_prefix("VERSION_CODENAME=") {
-            return Some(codename.trim_matches('"').to_string());
-        }
-    }
-    None
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::Platform};
+use crate::common::{command, package_manager, platform::{self, Platform}};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -55,7 +55,12 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
         "/etc/apt/keyrings/hashicorp.gpg",
     )?;
 
-    let codename = get_codename().unwrap_or_else(|| "jammy".to_string());
+    let codename = platform::get_apt_codename().ok_or_else(|| {
+        anyhow::anyhow!(
+            "could not determine VERSION_CODENAME from /etc/os-release — \
+             cannot configure Terraform apt repository"
+        )
+    })?;
 
     let repo_line = format!(
         "deb [signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com {codename} main"
@@ -74,12 +79,3 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     Ok(())
 }
 
-fn get_codename() -> Option<String> {
-    let content = std::fs::read_to_string("/etc/os-release").ok()?;
-    for line in content.lines() {
-        if let Some(codename) = line.strip_prefix("VERSION_CODENAME=") {
-            return Some(codename.trim_matches('"').to_string());
-        }
-    }
-    None
-}

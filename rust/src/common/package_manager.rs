@@ -31,7 +31,7 @@ pub fn is_brew_applicable(platform: &Platform) -> bool {
         return true;
     }
     match platform.distro() {
-        Some(Distro::Debian) | Some(Distro::Fedora) => true,
+        Some(Distro::Debian | Distro::Ubuntu | Distro::Fedora) => true,
         _ => false,
     }
 }
@@ -157,7 +157,7 @@ pub fn install(platform: &Platform, package: &str) -> Result<()> {
 
     // Linux/WSL: route based on distro
     match platform.distro() {
-        Some(Distro::Debian) => {
+        Some(Distro::Debian | Distro::Ubuntu) => {
             if !is_brew_failed() && has_brew() {
                 return brew_install(package);
             }
@@ -292,6 +292,12 @@ mod tests {
             arch: CpuArch::X86_64,
         }
     }
+    fn ubuntu() -> Platform {
+        Platform {
+            os: Os::Linux(Distro::Ubuntu),
+            arch: CpuArch::X86_64,
+        }
+    }
     fn fedora() -> Platform {
         Platform {
             os: Os::Linux(Distro::Fedora),
@@ -341,6 +347,11 @@ mod tests {
     #[test]
     fn brew_applicable_on_debian() {
         assert!(is_brew_applicable(&debian()));
+    }
+
+    #[test]
+    fn brew_applicable_on_ubuntu() {
+        assert!(is_brew_applicable(&ubuntu()));
     }
 
     #[test]
@@ -518,8 +529,15 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn ubuntu_needs_sudo_when_not_root() {
+        if !command::is_root() {
+            assert!(needs_sudo_for_native_pkg(&ubuntu()));
+        }
+    }
+
+    #[test]
     fn needs_sudo_for_apt_matches_native_pkg() {
-        let platforms = [mac(), debian(), fedora(), nixos(), arch_linux()];
+        let platforms = [mac(), debian(), ubuntu(), fedora(), nixos(), arch_linux()];
         for p in &platforms {
             assert_eq!(
                 needs_sudo_for_apt(p),

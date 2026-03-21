@@ -3,9 +3,15 @@ use std::fmt;
 use anyhow::{Result, bail};
 
 /// Linux distribution family, detected from `/etc/os-release`.
+///
+/// `Ubuntu` is tracked separately from `Debian` because some third-party apt
+/// repositories use different repo URLs and codenames for each (e.g. Docker,
+/// Azure CLI, .NET SDK, Terraform). For "is this apt-based?" checks, use
+/// `Platform::is_debian()` which returns true for both.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Distro {
     Debian,
+    Ubuntu,
     Fedora,
     Arch,
     Alpine,
@@ -77,7 +83,8 @@ pub fn parse_distro(os_release: &str) -> Distro {
 /// Match a single lowercase token to a known distro.
 fn match_distro_token(token: &str) -> Option<Distro> {
     match token {
-        "debian" | "ubuntu" => Some(Distro::Debian),
+        "debian" => Some(Distro::Debian),
+        "ubuntu" => Some(Distro::Ubuntu),
         "fedora" | "rhel" | "centos" => Some(Distro::Fedora),
         "arch" | "manjaro" => Some(Distro::Arch),
         "alpine" => Some(Distro::Alpine),
@@ -103,6 +110,28 @@ fn detect_distro() -> Distro {
         Ok(content) => parse_distro(&content),
         Err(_) => Distro::Unknown(String::new()),
     }
+}
+
+/// Read `VERSION_CODENAME` from `/etc/os-release` (e.g. "jammy", "bookworm").
+/// Returns `None` on macOS or if the field is missing.
+pub fn get_apt_codename() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    parse_os_release_field(&content, "VERSION_CODENAME")
+}
+
+/// Parse a specific field from os-release content by key name.
+/// Handles both quoted and unquoted values.
+pub fn parse_os_release_field(content: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    for line in content.lines() {
+        if let Some(val) = line.strip_prefix(&prefix) {
+            let val = val.trim_matches('"').trim_matches('\'');
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
 }
 
 impl Platform {
@@ -154,9 +183,16 @@ impl Platform {
         }
     }
 
-    /// Returns true if the distro is Debian (or a derivative like Ubuntu).
+    /// Returns true if the distro is Debian-family (Debian or Ubuntu).
+    /// Use this for apt/dpkg operations that work identically on both.
     pub fn is_debian(&self) -> bool {
-        self.distro() == Some(&Distro::Debian)
+        matches!(self.distro(), Some(Distro::Debian | Distro::Ubuntu))
+    }
+
+    /// Returns true if the distro is specifically Ubuntu (not plain Debian).
+    /// Use this for Ubuntu-specific operations like `add-apt-repository universe`.
+    pub fn is_ubuntu(&self) -> bool {
+        self.distro() == Some(&Distro::Ubuntu)
     }
 
     /// Returns true if the distro is Fedora (or a derivative like Rocky, CentOS).
@@ -234,7 +270,7 @@ ID=ubuntu
 ID_LIKE=debian
 PRETTY_NAME=\"Ubuntu 22.04.3 LTS\"
 ";
-        assert_eq!(parse_distro(content), Distro::Debian);
+        assert_eq!(parse_distro(content), Distro::Ubuntu);
     }
 
     #[test]
@@ -413,7 +449,14 @@ ID_LIKE=\"rhel fedora\"
         let debian = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
         assert_eq!(debian.distro(), Some(&Distro::Debian));
         assert!(debian.is_debian());
+        assert!(!debian.is_ubuntu());
         assert!(!debian.is_fedora());
+
+        let ubuntu = Platform { os: Os::Linux(Distro::Ubuntu), arch: Arch::X86_64 };
+        assert_eq!(ubuntu.distro(), Some(&Distro::Ubuntu));
+        assert!(ubuntu.is_debian(), "Ubuntu should be considered debian-family");
+        assert!(ubuntu.is_ubuntu());
+        assert!(!ubuntu.is_fedora());
 
         let fedora = Platform { os: Os::Linux(Distro::Fedora), arch: Arch::X86_64 };
         assert!(fedora.is_fedora());
@@ -441,5 +484,51 @@ ID_LIKE=\"rhel fedora\"
         let display = format!("{mac}");
         assert!(display.contains("macOS"), "display should contain macOS: {display}");
         assert!(display.contains("aarch64"), "display should contain aarch64: {display}");
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_os_release_field tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_os_release_field_extracts_codename() {
+        let content = "ID=ubuntu\nVERSION_CODENAME=jammy\nVERSION_ID=\"22.04\"\n";
+        assert_eq!(
+            parse_os_release_field(content, "VERSION_CODENAME"),
+            Some("jammy".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_os_release_field_handles_quoted() {
+        let content = "ID=\"debian\"\nVERSION_CODENAME=\"bookworm\"\n";
+        assert_eq!(
+            parse_os_release_field(content, "VERSION_CODENAME"),
+            Some("bookworm".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_os_release_field_returns_none_when_missing() {
+        let content = "ID=alpine\nVERSION_ID=3.19.0\n";
+        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME"), None);
+    }
+
+    #[test]
+    fn parse_os_release_field_returns_none_when_empty() {
+        let content = "VERSION_CODENAME=\n";
+        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME"), None);
+    }
+
+    #[test]
+    fn ubuntu_id_like_fallback_stays_debian() {
+        // A derivative with ID_LIKE=ubuntu should fall through to Ubuntu
+        let content = "\
+NAME=\"Linux Mint\"
+ID=linuxmint
+ID_LIKE=\"ubuntu debian\"
+";
+        // ID_LIKE token "ubuntu" matches Distro::Ubuntu
+        assert_eq!(parse_distro(content), Distro::Ubuntu);
     }
 }

@@ -1,5 +1,21 @@
 # Potential Insights
 
+## Ubuntu vs Debian requires separate Distro enum variants
+
+Originally `Distro::Debian` covered both Ubuntu and Debian. This caused 5
+installer bugs where Ubuntu-specific assumptions (repo URLs, codenames,
+`universe` repo) were applied to Debian. The fix was adding `Distro::Ubuntu`
+as a separate variant while keeping `is_debian()` returning true for both.
+Key principle: use `is_debian()` for "is this apt-based?" and `is_ubuntu()`
+only for Ubuntu-specific operations.
+
+## Codename detection should fail loudly, not fall back
+
+Several installers originally fell back to `"jammy"` (Ubuntu 22.04) when
+`VERSION_CODENAME` was missing from `/etc/os-release`. This silently produced
+wrong apt repo configs on Debian. Better to error clearly so the user knows
+the codename is missing than to silently configure the wrong repo.
+
 ## bashc install exit-code behavior
 
 `bashc install <tool>` now exits non-zero when installation fails.
