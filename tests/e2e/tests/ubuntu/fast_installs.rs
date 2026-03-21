@@ -104,7 +104,6 @@ async fn eza_version_works() {
         .expect("exec failed");
     if check.exit_code != 0 {
         // Skip: eza was not installed (likely a network/repo access issue in CI).
-        // The install_eza_exits_zero test already verified the installer exits 0.
         return;
     }
 
