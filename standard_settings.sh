@@ -6,7 +6,7 @@ PROMPT_DIRTRIM=3;
 
 
 
-if [[ $PROFILE_SHELL == "zsh" ]]; then
+if [[ $PROFILE_SHELL == "zsh" && -n "$ZSH" && -f "$ZSH/oh-my-zsh.sh" ]]; then
 	plugins=(
 		git
 		colored-man-pages
@@ -28,9 +28,7 @@ if [[ $PROFILE_SHELL == "zsh" ]]; then
 		zsh-interactive-cd
 		zsh-navigation-tools
 	)
-	if [[ -n "$ZSH" && -f "$ZSH/oh-my-zsh.sh" ]]; then
-		source "$ZSH/oh-my-zsh.sh";
-	fi
+	source "$ZSH/oh-my-zsh.sh";
 fi
 
 if [[ $IS_MAC == "true" ]]; then
