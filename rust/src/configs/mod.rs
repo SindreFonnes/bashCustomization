@@ -1,3 +1,4 @@
+pub(crate) mod diff;
 pub(crate) mod link;
 pub mod manifest;
 pub(crate) mod state;

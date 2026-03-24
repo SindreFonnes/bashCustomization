@@ -67,6 +67,12 @@ enum ConfigsAction {
         /// Config group name. Shows all if omitted.
         name: Option<String>,
     },
+
+    /// Show diffs between repo and local config files
+    Diff {
+        /// Config group name. Diffs all if omitted.
+        name: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -125,6 +131,13 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ConfigsAction::Status { name } => {
                     configs::status::run_status(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                    )?;
+                }
+                ConfigsAction::Diff { name } => {
+                    configs::diff::run_diff(
                         &project_root,
                         &platform,
                         name.as_deref(),

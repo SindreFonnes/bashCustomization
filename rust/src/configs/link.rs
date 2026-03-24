@@ -334,7 +334,9 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
         );
 
         let items = &[
-            "View both versions (repo and local)",
+            "View diff (repo vs local)",
+            "View local version",
+            "View repo version",
             "Replace local \u{2014} backup as .bak, then symlink",
             "Replace local \u{2014} discard original, then symlink",
             "Keep local \u{2014} mark as self-managed on this machine",
@@ -349,61 +351,26 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
 
         match selection {
             0 => {
-                // View both versions, then loop back to menu
-                show_file_comparison(&entry.source, &entry.target)?;
+                // Show unified diff, then loop back to menu
+                crate::configs::diff::print_diff_to_stderr(&entry.source, &entry.target)?;
             }
-            1 => return Ok(Strategy::Replace),
-            2 => return Ok(Strategy::Discard),
-            3 => return Ok(Strategy::Keep),
-            4 => return Ok(Strategy::Prompt), // Prompt = skip
+            1 => {
+                // Show local file contents
+                crate::configs::diff::print_file_to_stderr(&entry.target, "local")?;
+            }
+            2 => {
+                // Show repo file contents
+                crate::configs::diff::print_file_to_stderr(&entry.source, "repo")?;
+            }
+            3 => return Ok(Strategy::Replace),
+            4 => return Ok(Strategy::Discard),
+            5 => return Ok(Strategy::Keep),
+            6 => return Ok(Strategy::Prompt), // Prompt = skip
             _ => unreachable!(),
         }
     }
 }
 
-/// Print contents of both source (repo) and target (local) files for comparison.
-fn show_file_comparison(source: &Path, target: &Path) -> Result<()> {
-    const MAX_LINES: usize = 100;
-
-    eprintln!("\n--- Repo version: {} ---", source.display());
-    print_file_preview(source, MAX_LINES)?;
-
-    eprintln!("\n--- Local version: {} ---", target.display());
-    print_file_preview(target, MAX_LINES)?;
-
-    eprintln!();
-    Ok(())
-}
-
-/// Print a file's contents, handling non-UTF-8 and long files gracefully.
-fn print_file_preview(path: &Path, max_lines: usize) -> Result<()> {
-    let bytes = std::fs::read(path).map_err(|e| {
-        anyhow::anyhow!("Failed to read {}: {}", path.display(), e)
-    })?;
-
-    match String::from_utf8(bytes.clone()) {
-        Ok(text) => {
-            let lines: Vec<&str> = text.lines().collect();
-            let total = lines.len();
-            let display_lines = if total > max_lines {
-                &lines[..max_lines]
-            } else {
-                &lines
-            };
-            for line in display_lines {
-                eprintln!("{}", line);
-            }
-            if total > max_lines {
-                eprintln!("... ({} more lines not shown)", total - max_lines);
-            }
-        }
-        Err(_) => {
-            eprintln!("(binary file, {} bytes)", bytes.len());
-        }
-    }
-
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // Tests
