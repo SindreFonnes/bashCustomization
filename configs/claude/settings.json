@@ -1,0 +1,37 @@
+{
+  "enabledPlugins": {
+    "posthog@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(ls *)",
+      "Bash(ln -s*)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Read(package.json)",
+      "Read(README.md)",
+      "Read(CLAUDE.md)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git checkout -b *)",
+      "Bash(git switch*)",
+      "Bash(git restore*)",
+      "Bash(bun *)"
+    ],
+    "ask": [
+      "Bash(rm *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force)",
+      "Read(~/.ssh/*)",
+      "Read(~/.aws/*)"
+    ]
+  }
+}
