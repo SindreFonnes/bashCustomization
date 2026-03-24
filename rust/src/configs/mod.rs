@@ -2,7 +2,7 @@ pub(crate) mod link;
 pub mod manifest;
 pub(crate) mod state;
 pub(crate) mod status;
-mod unlink;
+pub(crate) mod unlink;
 
 use std::path::{Path, PathBuf};
 
