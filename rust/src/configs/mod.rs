@@ -1,10 +1,10 @@
-mod link;
+pub(crate) mod link;
 pub mod manifest;
 pub(crate) mod state;
 pub(crate) mod status;
 mod unlink;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -54,4 +54,40 @@ pub struct ConfigEntry {
     pub target: PathBuf,
     /// Conflict-resolution strategy for this entry.
     pub strategy: Strategy,
+}
+
+// ---------------------------------------------------------------------------
+// Shared display helpers used by status and link
+// ---------------------------------------------------------------------------
+
+/// Format the source path for display as `<name>/<filename>`.
+///
+/// The source in `ConfigEntry` is the full absolute path inside the repo's
+/// `configs/` directory, e.g. `/repo/configs/claude/CLAUDE.md`. We want to
+/// show just `claude/CLAUDE.md` (relative to `configs/`).
+///
+/// We do this by taking the last two components of the path when they exist,
+/// otherwise falling back to the full path string.
+pub(crate) fn format_source(entry: &ConfigEntry) -> String {
+    let mut components: Vec<&str> = entry
+        .source
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+
+    if components.len() >= 2 {
+        let last_two = components.split_off(components.len() - 2);
+        last_two.join("/")
+    } else {
+        entry.source.to_string_lossy().into_owned()
+    }
+}
+
+/// Replace a `$HOME` prefix in `target` with `~` for compact display.
+pub(crate) fn display_target(target: &Path, home: &Path) -> String {
+    if let Ok(rel) = target.strip_prefix(home) {
+        format!("~/{}", rel.display())
+    } else {
+        target.to_string_lossy().into_owned()
+    }
 }

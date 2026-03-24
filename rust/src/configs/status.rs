@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{SelfManagedEntry, detect_state, is_self_managed, load_self_managed};
-use crate::configs::{ConfigEntry, EntryState};
+use crate::configs::{ConfigEntry, EntryState, display_target, format_source};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -118,42 +118,6 @@ pub(crate) fn write_status(
     }
 
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Format the source path for display as `<name>/<filename>`.
-///
-/// The source in `ConfigEntry` is the full absolute path inside the repo's
-/// `configs/` directory, e.g. `/repo/configs/claude/CLAUDE.md`. We want to
-/// show just `claude/CLAUDE.md` (relative to `configs/`).
-///
-/// We do this by taking the last two components of the path when they exist,
-/// otherwise falling back to the full path string.
-fn format_source(entry: &ConfigEntry) -> String {
-    let mut components: Vec<&str> = entry
-        .source
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect();
-
-    if components.len() >= 2 {
-        let last_two = components.split_off(components.len() - 2);
-        last_two.join("/")
-    } else {
-        entry.source.to_string_lossy().into_owned()
-    }
-}
-
-/// Replace a `$HOME` prefix in `target` with `~` for compact display.
-fn display_target(target: &Path, home: &Path) -> String {
-    if let Ok(rel) = target.strip_prefix(home) {
-        format!("~/{}", rel.display())
-    } else {
-        target.to_string_lossy().into_owned()
-    }
 }
 
 // ---------------------------------------------------------------------------
