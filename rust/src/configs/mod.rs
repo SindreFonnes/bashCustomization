@@ -6,6 +6,7 @@ pub(crate) mod unlink;
 
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use serde::Deserialize;
 
 /// The current linkage state of a config entry.
@@ -24,10 +25,11 @@ pub enum EntryState {
 }
 
 /// How to resolve a conflict when the target already exists.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Strategy {
     /// Show an interactive menu (default).
+    #[clap(skip)]
     Prompt,
     /// Backup the existing file and replace it.
     Replace,

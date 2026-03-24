@@ -4,6 +4,8 @@ mod install;
 
 use clap::{Parser, Subcommand};
 
+use configs::Strategy;
+
 #[derive(Parser)]
 #[command(name = "bashc", version, about = "Unified CLI for shell customization")]
 struct Cli {
@@ -29,6 +31,41 @@ enum Commands {
         /// Show full subprocess output
         #[arg(long)]
         verbose: bool,
+    },
+
+    /// Manage symlinked config files (claude, zellij, ghostty, etc.)
+    Configs {
+        #[command(subcommand)]
+        action: ConfigsAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigsAction {
+    /// Create symlinks from repo configs to system locations
+    Link {
+        /// Config group name (e.g. "claude", "zellij"). Links all if omitted.
+        name: Option<String>,
+
+        /// Force a specific conflict resolution strategy (replace, discard, keep)
+        #[arg(long, value_enum)]
+        force: Option<Strategy>,
+    },
+
+    /// Remove symlinks and optionally restore backups
+    Unlink {
+        /// Config group name. Unlinks all if omitted.
+        name: Option<String>,
+
+        /// Skip confirmation prompts (answer yes to all)
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// Show current state of all managed configs
+    Status {
+        /// Config group name. Shows all if omitted.
+        name: Option<String>,
     },
 }
 
@@ -62,6 +99,36 @@ async fn main() -> anyhow::Result<()> {
                 println!("\nAvailable tools:");
                 for name in install::available_tool_names() {
                     println!("  {name}");
+                }
+            }
+        }
+        Commands::Configs { action } => {
+            let platform = common::platform::Platform::detect()?;
+            let project_root = common::project_root::project_root()?;
+
+            match action {
+                ConfigsAction::Link { name, force } => {
+                    configs::link::run_link(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        force,
+                    )?;
+                }
+                ConfigsAction::Unlink { name, yes } => {
+                    configs::unlink::run_unlink(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        yes,
+                    )?;
+                }
+                ConfigsAction::Status { name } => {
+                    configs::status::run_status(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                    )?;
                 }
             }
         }
