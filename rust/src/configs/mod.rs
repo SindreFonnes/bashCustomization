@@ -1,12 +1,27 @@
 mod link;
 pub mod manifest;
-mod state;
+pub(crate) mod state;
 mod status;
 mod unlink;
 
 use std::path::PathBuf;
 
 use serde::Deserialize;
+
+/// The current linkage state of a config entry.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntryState {
+    /// Symlink at target points to the correct source.
+    Linked,
+    /// User chose to keep their local file (recorded in managed_configs.toml).
+    SelfManaged,
+    /// Symlink at target points to a different location.
+    WrongSymlink,
+    /// A regular file exists at the target (not managed by bashc).
+    Conflict,
+    /// No file exists at the target.
+    NotLinked,
+}
 
 /// How to resolve a conflict when the target already exists.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
