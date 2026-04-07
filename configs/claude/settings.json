@@ -1,8 +1,4 @@
 {
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true
-  },
-  "effortLevel": "high",
   "permissions": {
     "allow": [
       "Bash(git status*)",
@@ -31,14 +27,24 @@
       "Bash(cargo check*)",
       "Bash(bun *)"
     ],
-    "ask": [
-      "Bash(rm *)"
-    ],
     "deny": [
       "Bash(rm -rf /)",
       "Bash(git push --force)",
       "Read(~/.ssh/*)",
       "Read(~/.aws/*)"
+    ],
+    "ask": [
+      "Bash(rm *)"
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "sandbox": {
+    "ripgrep": {
+      "command": "/opt/homebrew/bin/rg"
+    }
   }
 }
