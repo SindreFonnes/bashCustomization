@@ -87,16 +87,28 @@ A new function added to `general_functions.sh` (or a dedicated file under `progr
 
 ### 4. Stale `local/managed_configs.toml` cleanup
 
-`bashc configs check` also prunes stale entries from `local/managed_configs.toml`. An entry is "stale" when:
+`bashc configs check` also prunes stale entries from `local/managed_configs.toml`. An entry is "stale" when **either** of the following holds:
 
-- The target path no longer exists on disk, **or**
-- The target path is no longer referenced by any entry in the manifest **across all platforms** (not just the current platform's filtered view).
+1. The target path is **not referenced by any entry in the unfiltered manifest** (i.e., the manifest has been edited to remove the entry entirely on every platform). The check loads the unfiltered manifest specifically so that platform-restricted entries are still considered "referenced".
+2. The target path **is referenced by an entry in the *current platform's* filtered manifest**, **and** the file at that target does not exist on disk. This is the "user deleted the local file on this machine" case.
 
-The "across all platforms" qualification matters: an entry that is marked self-managed on macOS for a macOS-only target must not be deleted when the check runs on a Linux machine, and vice versa. The cleanup pass therefore loads the manifest unfiltered when computing reachability.
+Why both conditions are needed:
+
+- Condition 1 alone would never clean up markers for files the user deleted on the current machine.
+- A simpler "missing on disk" rule would incorrectly delete markers for entries that belong to a different OS (e.g., a macOS-only entry checked from a Linux box where the macOS path doesn't exist). The "current platform filtered manifest" qualification on condition 2 prevents that — if an entry is not in the current platform's view, we have no business deciding whether its file "should" exist on this disk.
+
+Together, these rules give:
+
+| Marker situation | Action |
+| --- | --- |
+| Manifest entry exists for current platform; target file present | preserve |
+| Manifest entry exists for current platform; target file missing | **remove** (condition 2) |
+| Manifest entry exists only for other platforms; target file may or may not be present | preserve (cross-platform safety) |
+| No manifest entry on any platform | **remove** (condition 1) |
 
 Stale entries are removed silently (no output). Cleanup runs after the link/notify pass so it does not interfere with state detection.
 
-This keeps the self-managed list from accumulating cruft when the user removes a manifest entry or deletes a target file.
+This keeps the self-managed list from accumulating cruft when the user removes a manifest entry or deletes a target file, while never destroying a marker that another platform still depends on.
 
 ### 5. Documentation
 
@@ -121,9 +133,10 @@ This keeps the self-managed list from accumulating cruft when the user removes a
   - One `NotLinked` entry with missing target → auto-linked, one-line output, file becomes a symlink.
   - One `Conflict` entry → warning printed, file untouched.
   - Mixed: one `NotLinked` + one `Conflict` → both lines printed, only the safe one is fixed.
-  - Stale `managed_configs.toml` entry (target missing on disk) → entry removed, no user-visible output.
-  - Stale `managed_configs.toml` entry (target no longer referenced by any manifest entry) → entry removed.
-  - Cross-platform safety: a self-managed marker for an entry whose `platform` field excludes the current platform must **not** be removed by cleanup, since the entry still exists in the manifest as a whole.
+  - Stale cleanup, condition 1 (entry no longer in unfiltered manifest, target may or may not exist on disk) → marker removed, no user-visible output.
+  - Stale cleanup, condition 2 (entry IS in current platform's filtered manifest AND target file missing on disk) → marker removed, no user-visible output.
+  - Cross-platform safety: a marker whose entry is in the unfiltered manifest but **not** in the current platform's filtered manifest must be preserved, regardless of whether the target file exists locally.
+  - Negative case: a marker whose entry is in the current platform's filtered manifest AND whose target file exists must be preserved.
 - Test that the command exits 0 even when only unresolved drift remains.
 - Manual smoke test that opening a fresh shell after deleting a target file produces the expected one-liner and re-creates the symlink.
 
