@@ -105,6 +105,67 @@ pub(crate) fn is_self_managed(entries: &[SelfManagedEntry], target: &Path) -> bo
     entries.iter().any(|e| e.target == target_str.as_ref())
 }
 
+/// Prune entries from `local/managed_configs.toml` that are no longer
+/// reachable. An entry is stale when **either**:
+///   1. its `target` is NOT in `all_platform_targets` (entry no longer in
+///      the manifest at all), OR
+///   2. its `target` IS in `current_platform_targets` AND the file at
+///      that target does not exist on disk.
+///
+/// Cross-platform safety: a marker whose target appears in
+/// `all_platform_targets` but NOT in `current_platform_targets` is
+/// preserved unconditionally (it belongs to a different OS's view of the
+/// manifest, and we make no judgement about whether the file should
+/// exist on this machine).
+///
+/// `all_platform_targets` MUST come from `load_manifest_unfiltered`.
+/// `current_platform_targets` MUST come from `load_manifest` for the
+/// current platform.
+///
+/// Returns the number of entries removed (for testing/observability).
+/// Silent — does not print anything.
+#[allow(dead_code)] // TODO(task 3): remove once `bashc configs check` calls this.
+pub(crate) fn prune_stale_self_managed(
+    project_root: &Path,
+    current_platform_targets: &[String],
+    all_platform_targets: &[String],
+) -> Result<usize> {
+    let entries = load_self_managed(project_root)?;
+    if entries.is_empty() {
+        return Ok(0);
+    }
+
+    let mut removed = 0;
+    // Iterate over a snapshot — collect stale targets first, then remove.
+    let stale: Vec<String> = entries
+        .iter()
+        .filter(|e| {
+            let in_all = all_platform_targets.iter().any(|t| t == &e.target);
+            let in_current = current_platform_targets.iter().any(|t| t == &e.target);
+
+            // Condition 1: not in the unfiltered manifest at all.
+            if !in_all {
+                return true;
+            }
+            // Cross-platform safety: if it's in the unfiltered manifest but
+            // not the current platform's view, preserve it unconditionally.
+            if !in_current {
+                return false;
+            }
+            // Condition 2: in current platform manifest but file missing on disk.
+            !Path::new(&e.target).exists()
+        })
+        .map(|e| e.target.clone())
+        .collect();
+
+    for target in &stale {
+        remove_self_managed(project_root, target)?;
+        removed += 1;
+    }
+
+    Ok(removed)
+}
+
 /// Detect the current state of a config entry.
 ///
 /// Precedence (highest to lowest):
@@ -365,5 +426,131 @@ mod tests {
         let dir = tempdir().unwrap();
         // Should not error even if file doesn't exist.
         remove_self_managed(dir.path(), "/some/target").unwrap();
+    }
+
+    // ── prune_stale_self_managed tests ────────────────────────────────────────
+
+    /// Helper: add a SelfManagedEntry with all string fields.
+    fn make_sm_entry(name: &str, source: &str, target: &str) -> SelfManagedEntry {
+        SelfManagedEntry {
+            name: name.to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+        }
+    }
+
+    #[test]
+    fn prune_returns_zero_when_no_markers() {
+        // Empty self-managed list — prune should return 0, no error, no file written.
+        let dir = tempdir().unwrap();
+        let removed = prune_stale_self_managed(dir.path(), &[], &[]).unwrap();
+        assert_eq!(removed, 0);
+        assert!(!managed_configs_path(dir.path()).exists());
+    }
+
+    #[test]
+    fn prune_removes_entry_with_missing_target_when_in_current_filtered_manifest() {
+        // Condition 2: target IS in current_platform_targets AND file does NOT exist on disk.
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("nvim_init.lua");
+        let target_str = target.to_string_lossy().to_string();
+
+        // Add a marker for target — but do NOT create the file on disk.
+        add_self_managed(dir.path(), make_sm_entry("nvim", "/src/nvim/init.lua", &target_str))
+            .unwrap();
+
+        let current = vec![target_str.clone()];
+        let all = vec![target_str.clone()];
+
+        let removed = prune_stale_self_managed(dir.path(), &current, &all).unwrap();
+        assert_eq!(removed, 1);
+
+        let remaining = load_self_managed(dir.path()).unwrap();
+        assert!(remaining.is_empty(), "marker should have been removed");
+    }
+
+    #[test]
+    fn prune_removes_entry_not_in_unfiltered_manifest() {
+        // Condition 1: target is NOT in all_platform_targets (removed from manifest entirely).
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("tmux_conf");
+        let target_str = target.to_string_lossy().to_string();
+
+        // Create the file on disk — but it's not in any manifest slice.
+        std::fs::write(&target, "local config").unwrap();
+
+        add_self_managed(dir.path(), make_sm_entry("tmux", "/src/tmux", &target_str)).unwrap();
+
+        // Target absent from both slices — fully removed from manifest.
+        let removed = prune_stale_self_managed(dir.path(), &[], &[]).unwrap();
+        assert_eq!(removed, 1);
+
+        let remaining = load_self_managed(dir.path()).unwrap();
+        assert!(remaining.is_empty(), "marker should have been removed");
+    }
+
+    #[test]
+    fn prune_preserves_marker_for_other_platform_entry_with_missing_file() {
+        // Cross-platform safety: target NOT in current_platform_targets, IS in all_platform_targets,
+        // and file does NOT exist on disk (e.g. macOS path checked from Linux).
+        let dir = tempdir().unwrap();
+        let target_str = "/nonexistent/macos/only/path".to_string();
+
+        add_self_managed(dir.path(), make_sm_entry("macos-cfg", "/src/cfg", &target_str)).unwrap();
+
+        // Not in current platform, but IS in all-platform unfiltered manifest.
+        let current: Vec<String> = vec![];
+        let all = vec![target_str.clone()];
+
+        let removed = prune_stale_self_managed(dir.path(), &current, &all).unwrap();
+        assert_eq!(removed, 0, "cross-platform marker must be preserved");
+
+        let remaining = load_self_managed(dir.path()).unwrap();
+        assert_eq!(remaining.len(), 1, "marker should still be present");
+    }
+
+    #[test]
+    fn prune_preserves_marker_for_other_platform_entry_with_existing_file() {
+        // Cross-platform safety: target NOT in current_platform_targets, IS in all_platform_targets,
+        // and file exists on disk.
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("other_platform_cfg");
+        let target_str = target.to_string_lossy().to_string();
+
+        std::fs::write(&target, "some config").unwrap();
+
+        add_self_managed(dir.path(), make_sm_entry("other-cfg", "/src/cfg", &target_str)).unwrap();
+
+        // Not in current platform, but IS in all-platform unfiltered manifest.
+        let current: Vec<String> = vec![];
+        let all = vec![target_str.clone()];
+
+        let removed = prune_stale_self_managed(dir.path(), &current, &all).unwrap();
+        assert_eq!(removed, 0, "cross-platform marker must be preserved");
+
+        let remaining = load_self_managed(dir.path()).unwrap();
+        assert_eq!(remaining.len(), 1, "marker should still be present");
+    }
+
+    #[test]
+    fn prune_preserves_marker_when_in_current_manifest_and_file_exists() {
+        // Baseline happy path: target in both slices AND file exists — should not be pruned.
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("nvim_init.lua");
+        let target_str = target.to_string_lossy().to_string();
+
+        std::fs::write(&target, "local config").unwrap();
+
+        add_self_managed(dir.path(), make_sm_entry("nvim", "/src/nvim/init.lua", &target_str))
+            .unwrap();
+
+        let current = vec![target_str.clone()];
+        let all = vec![target_str.clone()];
+
+        let removed = prune_stale_self_managed(dir.path(), &current, &all).unwrap();
+        assert_eq!(removed, 0, "healthy marker must be preserved");
+
+        let remaining = load_self_managed(dir.path()).unwrap();
+        assert_eq!(remaining.len(), 1, "marker should still be present");
     }
 }
