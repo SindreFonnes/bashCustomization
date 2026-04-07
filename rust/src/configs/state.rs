@@ -135,7 +135,6 @@ pub(crate) fn prune_stale_self_managed(
         return Ok(0);
     }
 
-    let mut removed = 0;
     // Iterate over a snapshot — collect stale targets first, then remove.
     let stale: Vec<String> = entries
         .iter()
@@ -160,10 +159,9 @@ pub(crate) fn prune_stale_self_managed(
 
     for target in &stale {
         remove_self_managed(project_root, target)?;
-        removed += 1;
     }
 
-    Ok(removed)
+    Ok(stale.len())
 }
 
 /// Detect the current state of a config entry.
