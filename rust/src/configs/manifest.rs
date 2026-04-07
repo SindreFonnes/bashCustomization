@@ -44,6 +44,19 @@ pub fn load_manifest(project_root: &Path, platform: &Platform) -> Result<Vec<Con
     load_manifest_from_str(&content, project_root, platform, &home.to_string_lossy())
 }
 
+/// Load the manifest from `<project_root>/configs/manifest.toml` without
+/// applying any platform filter. Used by cross-platform safety checks
+/// (e.g., self-managed marker cleanup) that must reason about all entries
+/// regardless of the current OS.
+pub fn load_manifest_unfiltered(project_root: &Path) -> Result<Vec<ConfigEntry>> {
+    let manifest_path = project_root.join("configs").join("manifest.toml");
+    let content = std::fs::read_to_string(&manifest_path)
+        .with_context(|| format!("Failed to read manifest at {}", manifest_path.display()))?;
+
+    let home = crate::configs::home_dir()?;
+    load_manifest_from_str_unfiltered(&content, project_root, &home.to_string_lossy())
+}
+
 /// Return entries matching the given name (cloned).
 pub fn filter_by_name(entries: &[ConfigEntry], name: &str) -> Vec<ConfigEntry> {
     entries
@@ -65,6 +78,30 @@ fn load_manifest_from_str(
     platform: &Platform,
     home: &str,
 ) -> Result<Vec<ConfigEntry>> {
+    parse_manifest_entries(content, project_root, home, Some(platform))
+}
+
+/// Parse a manifest from a TOML string without applying any platform filter.
+/// `home` is passed explicitly so tests can override it without touching `$HOME`.
+fn load_manifest_from_str_unfiltered(
+    content: &str,
+    project_root: &Path,
+    home: &str,
+) -> Result<Vec<ConfigEntry>> {
+    parse_manifest_entries(content, project_root, home, None)
+}
+
+/// Core manifest parser shared by `load_manifest_from_str` and
+/// `load_manifest_from_str_unfiltered`.
+///
+/// When `platform_filter` is `Some(p)`, entries that do not match `p` are
+/// skipped. When it is `None`, all entries are returned.
+fn parse_manifest_entries(
+    content: &str,
+    project_root: &Path,
+    home: &str,
+    platform_filter: Option<&Platform>,
+) -> Result<Vec<ConfigEntry>> {
     let raw: RawManifest =
         toml::from_str(content).context("Failed to parse manifest.toml")?;
 
@@ -72,8 +109,8 @@ fn load_manifest_from_str(
     let mut entries = Vec::new();
 
     for raw_entry in raw.config {
-        // Platform filtering
-        if !platform_matches(&raw_entry.platform, platform) {
+        // Platform filtering — only applied when a filter is supplied
+        if platform_filter.is_some_and(|p| !platform_matches(&raw_entry.platform, p)) {
             continue;
         }
 
@@ -431,5 +468,80 @@ target = "~/.claude/CLAUDE.md"
         assert_eq!(filtered.len(), 1);
         // The original slice still has the entry
         assert_eq!(all.len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // load_manifest_unfiltered
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn load_unfiltered_returns_all_entries_regardless_of_platform() {
+        let toml = r#"
+[[config]]
+name = "ghostty"
+source = "ghostty/config"
+target = "~/Library/Application Support/com.mitchellh.ghostty/config"
+platform = "macos"
+
+[[config]]
+name = "linux-thing"
+source = "linux/config"
+target = "~/.config/linux-thing"
+platform = "linux"
+
+[[config]]
+name = "universal"
+source = "universal/config"
+target = "~/.config/universal"
+"#;
+        let entries =
+            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME)
+                .expect("should parse");
+        assert_eq!(
+            entries.len(),
+            3,
+            "all three entries should be returned regardless of platform"
+        );
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"ghostty"));
+        assert!(names.contains(&"linux-thing"));
+        assert!(names.contains(&"universal"));
+    }
+
+    #[test]
+    fn load_unfiltered_still_expands_tilde() {
+        let toml = r#"
+[[config]]
+name = "foo"
+source = "foo/config"
+target = "~/.foo"
+"#;
+        let entries =
+            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME)
+                .expect("should parse");
+        assert_eq!(
+            entries[0].target,
+            PathBuf::from("/home/testuser/.foo"),
+            "tilde should be expanded to home dir"
+        );
+    }
+
+    #[test]
+    fn load_unfiltered_still_resolves_sources_to_configs_dir() {
+        let toml = r#"
+[[config]]
+name = "claude"
+source = "claude/CLAUDE.md"
+target = "~/.claude/CLAUDE.md"
+"#;
+        let root = PathBuf::from("/fake/project");
+        let entries =
+            load_manifest_from_str_unfiltered(toml, &root, FAKE_HOME)
+                .expect("should parse");
+        assert_eq!(
+            entries[0].source,
+            PathBuf::from("/fake/project/configs/claude/CLAUDE.md"),
+            "source should be resolved relative to <root>/configs/"
+        );
     }
 }
