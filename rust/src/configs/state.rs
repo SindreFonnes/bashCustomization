@@ -124,7 +124,6 @@ pub(crate) fn is_self_managed(entries: &[SelfManagedEntry], target: &Path) -> bo
 ///
 /// Returns the number of entries removed (for testing/observability).
 /// Silent — does not print anything.
-#[allow(dead_code)] // TODO(task 3): remove once `bashc configs check` calls this.
 pub(crate) fn prune_stale_self_managed(
     project_root: &Path,
     current_platform_targets: &[String],

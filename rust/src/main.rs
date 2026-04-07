@@ -73,6 +73,9 @@ enum ConfigsAction {
         /// Config group name. Diffs all if omitted.
         name: Option<String>,
     },
+
+    /// Auto-link safe drift and warn about anything that needs attention. Designed for shell-startup invocation.
+    Check {},
 }
 
 #[tokio::main]
@@ -142,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
                         &platform,
                         name.as_deref(),
                     )?;
+                }
+                ConfigsAction::Check {} => {
+                    configs::check::run_check(&project_root, &platform)?;
                 }
             }
         }

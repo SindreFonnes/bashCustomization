@@ -167,10 +167,12 @@ fn write_link(
 }
 
 // ---------------------------------------------------------------------------
-// Symlink creation helper (shared by NotLinked and conflict resolution)
+// Symlink creation helper (shared by NotLinked, conflict resolution, and check)
 // ---------------------------------------------------------------------------
 
-fn create_symlink(entry: &ConfigEntry) -> Result<()> {
+/// Create a symlink at `entry.target` pointing to `entry.source`.
+/// Creates parent directories as needed. Shared with `check.rs`.
+pub(crate) fn create_symlink(entry: &ConfigEntry) -> Result<()> {
     if let Some(parent) = entry.target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
             anyhow::anyhow!(

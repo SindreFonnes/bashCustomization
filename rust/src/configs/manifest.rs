@@ -48,8 +48,6 @@ pub fn load_manifest(project_root: &Path, platform: &Platform) -> Result<Vec<Con
 /// applying any platform filter. Used by cross-platform safety checks
 /// (e.g., self-managed marker cleanup) that must reason about all entries
 /// regardless of the current OS.
-// TODO(task 3): remove once `bashc configs check` calls this.
-#[allow(dead_code)]
 pub fn load_manifest_unfiltered(project_root: &Path) -> Result<Vec<ConfigEntry>> {
     let manifest_path = project_root.join("configs").join("manifest.toml");
     let content = std::fs::read_to_string(&manifest_path)
@@ -85,8 +83,6 @@ fn load_manifest_from_str(
 
 /// Parse a manifest from a TOML string without applying any platform filter.
 /// `home` is passed explicitly so tests can override it without touching `$HOME`.
-// TODO(task 3): remove once `bashc configs check` uses the public wrapper.
-#[allow(dead_code)]
 fn load_manifest_from_str_unfiltered(
     content: &str,
     project_root: &Path,
