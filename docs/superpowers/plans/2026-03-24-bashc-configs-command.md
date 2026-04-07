@@ -56,13 +56,13 @@ WSL is treated as Linux for config purposes — if you use a tool on Linux, you 
 ## Key Types
 
 ### `ConfigEntry` (parsed from manifest)
-Fields: `name` (group name, e.g. "claude"), `source` (relative to `configs/`), `target` (absolute path after tilde expansion), `platform` (optional: "macos", "linux"), `strategy` (default conflict resolution: "prompt", "replace", "replace-discard", "keep")
+Fields: `name` (group name, e.g. "claude"), `source` (relative to `configs/`), `target` (absolute path after tilde expansion), `platform` (optional: "macos", "linux"), `strategy` (default conflict resolution: "prompt", "replace", "discard", "keep")
 
 ### `EntryState` (computed at runtime)
 Variants: `Linked` (symlink points to correct source), `SelfManaged` (user chose to keep local), `Conflict` (real file exists, not managed), `NotLinked` (target doesn't exist), `WrongSymlink` (symlink points elsewhere)
 
 ### `Strategy` enum
-Variants: `Prompt`, `Replace`, `ReplaceDiscard`, `Keep` — maps to `--force` values and manifest `strategy` field
+Variants: `Prompt`, `Replace`, `Discard`, `Keep` — maps to `--force` values and manifest `strategy` field
 
 ### Force flag
 `--force <strategy>` is required to specify which strategy: `--force replace`, `--force discard`, `--force keep`. Without `--force`, the manifest's `strategy` field is used (defaulting to `prompt`).

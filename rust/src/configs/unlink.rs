@@ -10,7 +10,7 @@ use dialoguer::theme::ColorfulTheme;
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{SelfManagedEntry, detect_state, is_self_managed, load_self_managed, remove_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source};
+use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -22,8 +22,7 @@ pub fn run_unlink(
     filter_name: Option<&str>,
     yes: bool,
 ) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/root"));
-    let home_path = PathBuf::from(&home);
+    let home_path = home_dir()?;
 
     let all_entries = load_manifest(project_root, platform)?;
 
@@ -33,6 +32,7 @@ pub fn run_unlink(
             let available: Vec<&str> = {
                 let mut names: Vec<&str> =
                     all_entries.iter().map(|e| e.name.as_str()).collect();
+                names.sort();
                 names.dedup();
                 names
             };

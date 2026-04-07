@@ -1,14 +1,14 @@
 // status: report on linked/unlinked config state
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Result, bail};
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{SelfManagedEntry, detect_state, is_self_managed, load_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source};
+use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -19,8 +19,7 @@ pub fn run_status(
     platform: &Platform,
     filter_name: Option<&str>,
 ) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/root"));
-    let home_path = PathBuf::from(&home);
+    let home_path = home_dir()?;
 
     let all_entries = load_manifest(project_root, platform)?;
 
@@ -30,6 +29,7 @@ pub fn run_status(
             let available: Vec<&str> = {
                 let mut names: Vec<&str> =
                     all_entries.iter().map(|e| e.name.as_str()).collect();
+                names.sort();
                 names.dedup();
                 names
             };
@@ -128,6 +128,7 @@ pub(crate) fn write_status(
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     use crate::configs::Strategy;

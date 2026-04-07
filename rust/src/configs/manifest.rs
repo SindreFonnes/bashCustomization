@@ -40,7 +40,8 @@ pub fn load_manifest(project_root: &Path, platform: &Platform) -> Result<Vec<Con
     let content = std::fs::read_to_string(&manifest_path)
         .with_context(|| format!("Failed to read manifest at {}", manifest_path.display()))?;
 
-    load_manifest_from_str(&content, project_root, platform, &home_dir())
+    let home = crate::configs::home_dir()?;
+    load_manifest_from_str(&content, project_root, platform, &home.to_string_lossy())
 }
 
 /// Return entries matching the given name (cloned).
@@ -81,7 +82,7 @@ fn load_manifest_from_str(
 
         // Warn if source doesn't exist, but continue
         if !source.exists() {
-            println!(
+            eprintln!(
                 "Warning: source file does not exist: {}",
                 source.display()
             );
@@ -112,7 +113,7 @@ fn platform_matches(raw: &Option<String>, platform: &Platform) -> bool {
         Some("macos") => matches!(platform.os, Os::MacOs),
         Some("linux") => matches!(platform.os, Os::Linux(_) | Os::Wsl(_)),
         Some(other) => {
-            println!("Warning: unknown platform filter '{other}' — skipping entry");
+            eprintln!("Warning: unknown platform filter '{other}' — skipping entry");
             false
         }
     }
@@ -127,11 +128,6 @@ fn expand_tilde(path: &str, home: &str) -> PathBuf {
     } else {
         PathBuf::from(path)
     }
-}
-
-/// Read `$HOME` from the environment.
-fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| String::from("/root"))
 }
 
 // ---------------------------------------------------------------------------

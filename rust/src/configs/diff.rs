@@ -4,12 +4,12 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use similar::{ChangeTag, TextDiff};
+use similar::TextDiff;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{detect_state, load_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source};
+use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -26,8 +26,7 @@ pub fn run_diff(
     platform: &Platform,
     filter_name: Option<&str>,
 ) -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/root"));
-    let home_path = std::path::PathBuf::from(&home);
+    let home_path = home_dir()?;
 
     let all_entries = load_manifest(project_root, platform)?;
 
@@ -35,6 +34,7 @@ pub fn run_diff(
         let filtered = filter_by_name(&all_entries, name);
         if filtered.is_empty() {
             let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
+            names.sort();
             names.dedup();
             bail!(
                 "No config named '{}'. Available: {}",

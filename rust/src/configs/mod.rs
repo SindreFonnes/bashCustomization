@@ -7,8 +7,22 @@ pub(crate) mod unlink;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
 use clap::ValueEnum;
 use serde::Deserialize;
+
+/// Resolve `$HOME` as a `PathBuf`. Errors if HOME is unset or empty.
+///
+/// Centralized so the configs commands fail fast instead of silently
+/// operating against an unrelated default like `/root` when running under
+/// sudo or in a minimal environment.
+pub(crate) fn home_dir() -> Result<PathBuf> {
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("$HOME environment variable is not set or is empty"))?;
+    Ok(PathBuf::from(home))
+}
 
 /// The current linkage state of a config entry.
 #[derive(Debug, Clone, PartialEq)]
