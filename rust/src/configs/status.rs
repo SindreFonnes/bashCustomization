@@ -88,7 +88,17 @@ pub(crate) fn write_status(
 
             let line = match state {
                 EntryState::Linked => {
-                    format!("  ✓ {source_display} → {target_display}")
+                    // A correct symlink can still dangle if the source file
+                    // has been removed (e.g. branch switch, repo cleanup).
+                    // detect_state reports this as Linked, so surface it here
+                    // rather than misreporting a broken link as healthy.
+                    if !entry.source.exists() {
+                        format!(
+                            "  ✗ {source_display} → {target_display} [conflict: source missing; target is a dangling symlink]"
+                        )
+                    } else {
+                        format!("  ✓ {source_display} → {target_display}")
+                    }
                 }
                 EntryState::SelfManaged => {
                     format!("  ○ {source_display} → {target_display} [self-managed]")
@@ -297,6 +307,36 @@ mod tests {
         let output = capture_status(&[entry], &sm);
         assert!(output.contains("○"));
         assert!(output.contains("[self-managed]"));
+    }
+
+    #[test]
+    fn dangling_symlink_shows_conflict() {
+        // Symlink whose stored destination still equals entry.source, but
+        // the source file has been deleted. detect_state returns Linked, so
+        // write_status must cross-check source.exists() to avoid misreporting
+        // the broken link as healthy.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.kdl");
+        let target = dir.path().join("target.kdl");
+        std::fs::write(&source, "").unwrap();
+        symlink(&source, &target).unwrap();
+        std::fs::remove_file(&source).unwrap();
+
+        assert!(target.is_symlink(), "target should still be a symlink");
+        assert!(!source.exists(), "source should be gone");
+
+        let entry = make_entry("zellij", source, target);
+
+        let output = capture_status(&[entry], &[]);
+        assert!(output.contains("✗"), "should use cross glyph, got: {output:?}");
+        assert!(
+            output.contains("dangling symlink"),
+            "should mention dangling symlink, got: {output:?}"
+        );
+        assert!(
+            !output.contains("✓"),
+            "should not also render a checkmark, got: {output:?}"
+        );
     }
 
     #[test]

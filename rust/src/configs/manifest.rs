@@ -114,16 +114,15 @@ fn parse_manifest_entries(
             continue;
         }
 
-        // Resolve source to absolute path
+        // Resolve source to absolute path.
+        //
+        // Missing source files are NOT warned about here: `bashc configs
+        // check` runs on every interactive shell startup, so a single
+        // missing source would spam the terminal on every launch. Validation
+        // is owned by the commands that act on the manifest — `link` bails
+        // hard, `check`/`status` surface it as drift — which is enough
+        // without duplicating the signal at load time.
         let source = configs_dir.join(&raw_entry.source);
-
-        // Warn if source doesn't exist, but continue
-        if !source.exists() {
-            eprintln!(
-                "Warning: source file does not exist: {}",
-                source.display()
-            );
-        }
 
         // Expand leading ~ in target
         let target = expand_tilde(&raw_entry.target, home);

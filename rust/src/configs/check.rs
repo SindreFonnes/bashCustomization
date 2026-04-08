@@ -50,7 +50,17 @@ fn write_check(
         let state = detect_state(entry, self_managed);
 
         match state {
-            EntryState::Linked | EntryState::SelfManaged => {
+            EntryState::Linked => {
+                // A correct symlink can still be dangling if the source file
+                // has been removed. `detect_state` classifies this as `Linked`
+                // because it only compares the stored link path to
+                // `entry.source`, so surface the missing source as drift here
+                // instead of silently accepting it.
+                if !entry.source.exists() {
+                    drift_items.push((entry.name.clone(), "missing source"));
+                }
+            }
+            EntryState::SelfManaged => {
                 // Silent — no action needed.
             }
             EntryState::NotLinked => {
@@ -513,7 +523,43 @@ mod tests {
         );
     }
 
-    // ── Test 12: Returns Ok even with unresolved drift ───────────────────────
+    // ── Test 12: Dangling symlink (Linked + missing source) surfaces as drift ─
+
+    #[test]
+    fn check_reports_dangling_symlink_when_source_deleted() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        // Create the symlink first, then remove the source — leaves a
+        // symlink whose stored destination still equals `entry.source`.
+        std::fs::write(&source, "hello").unwrap();
+        symlink(&source, &target).unwrap();
+        std::fs::remove_file(&source).unwrap();
+
+        // Sanity: detect_state still classifies this as Linked because
+        // read_link only inspects the stored path, not its resolution.
+        assert!(target.is_symlink(), "target should still be a symlink");
+        assert!(!source.exists(), "source should be gone");
+
+        let entry = make_entry("test", &source, &target);
+        let output = capture_check(&[entry], &[], dir.path());
+
+        assert!(
+            output.contains("missing source"),
+            "output should report missing source as drift, got: {output:?}"
+        );
+        assert!(
+            output.contains("\u{26a0}"),
+            "output should include warning symbol, got: {output:?}"
+        );
+        assert!(
+            !output.contains("linked"),
+            "output should not claim to have linked anything, got: {output:?}"
+        );
+    }
+
+    // ── Test 14: Returns Ok even with unresolved drift ───────────────────────
 
     #[test]
     fn check_returns_ok_even_with_unresolved_drift() {
