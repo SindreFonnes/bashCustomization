@@ -2,6 +2,10 @@
 
 This directory contains version-controlled config files managed by `bashc configs`. Each subdirectory holds the source file(s) for a tool, and `manifest.toml` declares where each file should be symlinked on the local machine. The `bashc configs link`, `unlink`, `status`, `diff`, and `check` subcommands operate on these entries.
 
+## Repository location
+
+`bashc configs` discovers the repository root from the `BASHC_ROOT` environment variable, falling back to `$HOME/bashCustomization` when `BASHC_ROOT` is unset. If you keep this repo somewhere else, export `BASHC_ROOT` pointing at that checkout before running commands such as `bashc configs status` or `bashc configs link`, otherwise they will fail to resolve the manifest.
+
 ## Per-platform variants
 
 When a config file needs to differ between operating systems, split it into one file per platform and add one manifest entry per file. The naming convention is `<tool>/config.<platform>.<ext>`. For zellij, that looks like:

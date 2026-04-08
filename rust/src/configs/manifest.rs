@@ -143,15 +143,21 @@ fn parse_manifest_entries(
 /// - `None`/omitted → matches all platforms
 /// - `"macos"` → matches only `Os::MacOs`
 /// - `"linux"` → matches `Os::Linux(_)` and `Os::Wsl(_)`
+/// - any other value → non-matching, silently skipped
+///
+/// Unknown values are dropped without a warning because `load_manifest`
+/// runs on every interactive shell startup via `bashc configs check`; a
+/// single typo in `manifest.toml` would otherwise spam the terminal on
+/// every launch. Invalid entries become invisible to current-platform
+/// commands, which is the safe default — manifest typos surface via
+/// `bashc configs status` (the entry is missing from the listing) rather
+/// than via repeated startup noise.
 fn platform_matches(raw: &Option<String>, platform: &Platform) -> bool {
     match raw.as_deref() {
         None => true,
         Some("macos") => matches!(platform.os, Os::MacOs),
         Some("linux") => matches!(platform.os, Os::Linux(_) | Os::Wsl(_)),
-        Some(other) => {
-            eprintln!("Warning: unknown platform filter '{other}' — skipping entry");
-            false
-        }
+        Some(_) => false,
     }
 }
 
@@ -330,6 +336,29 @@ platform = "linux"
             1,
             "linux platform filter should match WSL too"
         );
+    }
+
+    #[test]
+    fn unknown_platform_filter_is_silently_skipped() {
+        // Unknown platform values must not warn (check runs on every shell
+        // startup — per-load noise would spam the terminal). The entry is
+        // simply filtered out on every real platform.
+        let toml = r#"
+[[config]]
+name = "typo"
+source = "typo/config"
+target = "~/.typo"
+platform = "macosX"
+"#;
+        for platform in [mac_platform(), linux_platform(), wsl_platform()] {
+            let entries =
+                load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
+                    .expect("should parse");
+            assert!(
+                entries.is_empty(),
+                "unknown platform filter should be filtered out, got: {entries:?}"
+            );
+        }
     }
 
     #[test]

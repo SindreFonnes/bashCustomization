@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(less *)",
+      "Bash(find *)",
+      "Bash(ln -s*)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Read(package.json)",
+      "Read(README.md)",
+      "Read(CLAUDE.md)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git checkout -b *)",
+      "Bash(git switch*)",
+      "Bash(git restore*)",
+      "Bash(cargo run*)",
+      "Bash(cargo build*)",
+      "Bash(cargo test*)",
+      "Bash(cargo check*)",
+      "Bash(bun *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force)",
+      "Read(~/.ssh/*)",
+      "Read(~/.aws/*)"
+    ],
+    "ask": [
+      "Bash(rm *)"
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
+  "effortLevel": "high"
+}

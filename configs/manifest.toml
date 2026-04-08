@@ -5,8 +5,15 @@ target = "~/.claude/CLAUDE.md"
 
 [[config]]
 name = "claude"
-source = "claude/settings.json"
+source = "claude/settings.macos.json"
 target = "~/.claude/settings.json"
+platform = "macos"
+
+[[config]]
+name = "claude"
+source = "claude/settings.linux.json"
+target = "~/.claude/settings.json"
+platform = "linux"
 
 [[config]]
 name = "zellij"
