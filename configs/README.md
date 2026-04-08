@@ -27,6 +27,8 @@ target = "~/.config/zellij/config.kdl"
 platform = "linux"
 ```
 
+Note: this is an illustrative example. The actual zellij entry in this repo uses a single cross-platform `config.kdl` because OSC52 makes the per-OS clipboard split unnecessary — see the trade-off note below.
+
 **Trade-off:** when most of the file is shared between platforms, this duplicates content. That is an accepted cost in exchange for keeping the simple symlink model and avoiding a templating engine. Use this pattern only when files genuinely differ per OS. For trivial differences, prefer a cross-platform default instead — for example, zellij's clipboard integration uses OSC52 (supported everywhere) rather than `pbcopy`, which avoids the need for per-platform files entirely.
 
 The `platform` field is optional. Entries without it apply on all platforms.
@@ -35,8 +37,17 @@ The `platform` field is optional. Entries without it apply on all platforms.
 
 `bashc configs check` is purpose-built for shell startup. It loads the manifest filtered for the current platform and computes the state of each entry:
 
-- **`NotLinked` with no file at the target path** — the symlink is created automatically. A single summary line is printed listing the count and names of newly linked configs.
+- **`NotLinked` with no file at the target path** — the symlink is created automatically (safe — no existing data would be clobbered). A single summary line is printed listing the count and names of newly linked configs.
+
+  ```
+  bashc: linked 2 configs (claude, zellij)
+  ```
+
 - **`Conflict`** (a real file exists at the target) or **`WrongSymlink`** (symlink points elsewhere) — the entry is left untouched and a warning line is printed, ending with a hint to run `bashc configs status` for details.
+
+  ```
+  bashc: ⚠ 2 configs need attention (zellij: conflict, claude: wrong symlink) — run 'bashc configs status'
+  ```
 - **`Linked`** or **`SelfManaged`** — no action, no output.
 
 The command exits 0 in all non-fatal cases, including when unresolved drift exists, so that a startup warning never breaks the shell. Use `bashc configs status` for a read-only inspection of all entries at any time.
@@ -63,8 +74,8 @@ Cross-platform safety: a marker for a macOS-only entry is preserved when checked
 1. Create a subdirectory under `configs/` for the tool if it does not exist.
 2. Add the config file(s) to that directory.
 3. Add one or more `[[config]]` entries to `manifest.toml`. Include a `platform` field only if the entry should be restricted to a specific OS.
-4. Run `bashc configs link <name>` to create the symlink on the current machine.
+4. Run `bashc configs link <name>` to create the symlink on the current machine (or open a new interactive shell — `bashc configs check` will auto-link it on startup).
 
 ---
 
-For the full design rationale, including the goals, non-goals, and staleness-rule details, see the spec at `docs/superpowers/specs/2026-04-07-multi-os-config-handling-design.md`.
+For the design rationale and trade-off analysis behind this feature, see the [design spec](../docs/superpowers/specs/2026-04-07-multi-os-config-handling-design.md).
