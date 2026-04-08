@@ -17,10 +17,11 @@ use crate::configs::{ConfigEntry, EntryState, display_target, format_source, hom
 
 /// Show diffs for configs where the local file differs from the repo version.
 ///
-/// Only meaningful for `Conflict` and `SelfManaged` states — in those cases
-/// there is a local file that may differ from the repo version. `Linked`
-/// entries are symlinks (always identical), and `NotLinked` entries have no
-/// local file to compare.
+/// Only meaningful for `Conflict`, `SelfManaged`, and `WrongSymlink` states —
+/// in those cases there is a local file (or a symlink pointing to one) that
+/// may differ from the repo version. `Linked` entries are symlinks to the
+/// repo source (always identical), and `NotLinked` entries have no local
+/// file to compare.
 pub fn run_diff(
     project_root: &Path,
     platform: &Platform,
@@ -62,6 +63,7 @@ fn write_diff(
     self_managed: &[crate::configs::state::SelfManagedEntry],
     home: &Path,
 ) -> Result<()> {
+    let mut compared_any = false;
     let mut found_any = false;
 
     for entry in entries {
@@ -71,6 +73,7 @@ fn write_diff(
 
         match state {
             EntryState::Conflict | EntryState::SelfManaged | EntryState::WrongSymlink => {
+                compared_any = true;
                 let diff_output = compute_diff(&entry.source, &entry.target)?;
                 match diff_output {
                     Some(diff) => {
@@ -102,7 +105,11 @@ fn write_diff(
         }
     }
 
-    if !found_any {
+    // Only print the summary when at least one entry was actually compared.
+    // Otherwise (e.g. all entries Linked or NotLinked) the per-entry lines
+    // already explain why nothing was diffed, and "No differences found."
+    // would be misleading in scripted use.
+    if compared_any && !found_any {
         writeln!(writer, "No differences found.")?;
     }
 
@@ -306,6 +313,71 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("not linked"), "should note not linked: {output}");
+    }
+
+    #[test]
+    fn write_diff_does_not_print_summary_when_nothing_compared() {
+        // All entries are NotLinked — nothing to diff. The "No differences found."
+        // summary should NOT appear, since no comparison was actually performed.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("missing_target.txt");
+        std::fs::write(&source, "content\n").unwrap();
+        // target intentionally not created
+
+        let entry = make_entry("test", source, target);
+        let mut buf: Vec<u8> = Vec::new();
+        write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("not linked"), "should explain per-entry why nothing was compared: {output}");
+        assert!(
+            !output.contains("No differences found."),
+            "should NOT print summary when nothing comparable: {output}"
+        );
+    }
+
+    #[test]
+    fn write_diff_prints_summary_when_compared_entries_match() {
+        // Entry IS comparable (Conflict) and matches — summary should still
+        // appear because at least one comparison was performed.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "same\n").unwrap();
+        std::fs::write(&target, "same\n").unwrap();
+
+        let entry = make_entry("test", source, target);
+        let mut buf: Vec<u8> = Vec::new();
+        write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("identical"));
+        assert!(
+            output.contains("No differences found."),
+            "should print summary when at least one entry was compared: {output}"
+        );
+    }
+
+    #[test]
+    fn write_diff_compares_wrong_symlink_against_repo_source() {
+        // WrongSymlink should be diffed (its symlink-resolved content vs the
+        // repo source) — this matches the documented behavior.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let other = dir.path().join("other.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "repo version\n").unwrap();
+        std::fs::write(&other, "other version\n").unwrap();
+        symlink(&other, &target).unwrap(); // points to wrong place
+
+        let entry = make_entry("test", source, target);
+        let mut buf: Vec<u8> = Vec::new();
+        write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(output.contains("-other version"), "should show wrong-symlink target as removed: {output}");
+        assert!(output.contains("+repo version"), "should show repo as added: {output}");
     }
 
     #[test]

@@ -195,11 +195,16 @@ The file `local/managed_configs.toml` (gitignored, inside the bashCustomization 
 
 ### Format
 
+`source` and `target` are stored as **absolute** paths (the resolved values from
+`ConfigEntry`, not the manifest's repo-relative source / `~`-prefixed target).
+This keeps the comparison in `is_self_managed` a simple string match against
+the entry's resolved target path:
+
 ```toml
 [[self_managed]]
 name = "claude"
-source = "claude/settings.json"
-target = "~/.claude/settings.json"
+source = "/home/user/bashCustomization/configs/claude/settings.json"
+target = "/home/user/.claude/settings.json"
 ```
 
 ### Requirements

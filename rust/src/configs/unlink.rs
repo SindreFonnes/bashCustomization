@@ -165,7 +165,26 @@ fn write_unlink(
                     )?;
                 }
             }
-            EntryState::NotLinked | EntryState::Conflict | EntryState::WrongSymlink => {
+            EntryState::NotLinked => {
+                // Stale self-managed: marker present but file gone — clean up
+                // the marker so the user has visible feedback when invoking
+                // unlink directly (the shell-startup `check` also prunes these,
+                // but a user running `unlink` explicitly should not be left
+                // wondering whether anything happened).
+                if is_self_managed(self_managed, &entry.target) {
+                    remove_self_managed(project_root, &entry.target.to_string_lossy())?;
+                    writeln!(
+                        writer,
+                        "  \u{2713} {source_display} \u{2192} {target_display} (stale self-managed marker removed)"
+                    )?;
+                } else {
+                    writeln!(
+                        writer,
+                        "  - {source_display} \u{2192} {target_display} (not linked, skipping)"
+                    )?;
+                }
+            }
+            EntryState::Conflict | EntryState::WrongSymlink => {
                 writeln!(
                     writer,
                     "  - {source_display} \u{2192} {target_display} (not linked, skipping)"
@@ -429,7 +448,48 @@ mod tests {
         assert!(output.contains("(unlinked)"));
     }
 
-    // ── Test 9: Unlink skips WrongSymlink entries ─────────────────────────────
+    // ── Test 9: Unlink cleans up stale self-managed marker (NotLinked) ───────
+
+    #[test]
+    fn unlink_removes_stale_self_managed_marker_when_target_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("missing_target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        // target intentionally never created → NotLinked
+
+        // Marker present but file is gone — stale.
+        add_self_managed(
+            dir.path(),
+            SelfManagedEntry {
+                name: "test".to_string(),
+                source: source.to_string_lossy().to_string(),
+                target: target.to_string_lossy().to_string(),
+            },
+        )
+        .unwrap();
+
+        let sm = load_self_managed(dir.path()).unwrap();
+        assert_eq!(sm.len(), 1, "precondition: marker should exist");
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_unlink(&[entry], &sm, dir.path(), true);
+
+        // Marker should have been pruned.
+        let sm_after = load_self_managed(dir.path()).unwrap();
+        assert!(sm_after.is_empty(), "stale marker should be removed");
+
+        // No new file should have been created.
+        assert!(!target.exists());
+
+        assert!(
+            output.contains("stale self-managed marker removed"),
+            "expected stale-marker message, got: {output}"
+        );
+    }
+
+    // ── Test 10: Unlink skips WrongSymlink entries ────────────────────────────
 
     #[test]
     fn unlink_skips_wrong_symlink_entry() {
