@@ -59,13 +59,29 @@ load_shell_extentionfiles () {
 }
 
 # Run 'bashc configs check' at interactive shell startup to detect config drift.
-# Skipped when: non-interactive shell, BASHC_SKIP_CONFIG_CHECK is set, or bashc is not on PATH.
+# Skipped for non-interactive shells or when BASHC_SKIP_CONFIG_CHECK is set.
+#
+# If 'bashc' is not on PATH (e.g. the binary was never installed), the function
+# prints a warning to stderr rather than failing silently — a silent no-op hid
+# real config drift during review of this feature. The same applies if 'bashc
+# configs check' itself exits non-zero. Set BASHC_SKIP_CONFIG_CHECK=1 to
+# suppress all output from this hook.
 bashc_check_configs () {
 	case $- in
 		*i*) ;;
 		*) return 0 ;;
 	esac
 	[ -n "${BASHC_SKIP_CONFIG_CHECK:-}" ] && return 0
-	command -v bashc >/dev/null 2>&1 || return 0
-	bashc configs check || true
+
+	if ! command -v bashc >/dev/null 2>&1; then
+		printf 'bashc: ⚠ bashc binary not on PATH — config drift check skipped. Install via bashCustomization/init.sh, or set BASHC_SKIP_CONFIG_CHECK=1 to silence.\n' >&2
+		return 0
+	fi
+
+	bashc configs check
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf 'bashc: ⚠ bashc configs check failed (exit %s) — run it manually for details.\n' "$rc" >&2
+	fi
+	return 0
 }
