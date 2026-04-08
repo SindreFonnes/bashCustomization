@@ -54,20 +54,15 @@ fn write_check(
                 // Silent — no action needed.
             }
             EntryState::NotLinked => {
-                // Auto-link only when target is truly absent (not even a broken symlink).
-                if entry.target.symlink_metadata().is_err() {
-                    create_symlink(entry)?;
-                    linked_count += 1;
-                    linked_names.push(entry.name.clone());
-                    // If a stale SM marker exists for this target, remove it — the
-                    // entry is now a properly managed symlink, not a local override.
-                    let target_str = entry.target.to_string_lossy();
-                    if self_managed.iter().any(|e| e.target == target_str.as_ref()) {
-                        remove_self_managed(project_root, &target_str)?;
-                    }
+                create_symlink(entry)?;
+                linked_count += 1;
+                linked_names.push(entry.name.clone());
+                // If a stale SM marker exists for this target, remove it — the
+                // entry is now a properly managed symlink, not a local override.
+                let target_str = entry.target.to_string_lossy();
+                if self_managed.iter().any(|e| e.target == target_str.as_ref()) {
+                    remove_self_managed(project_root, &target_str)?;
                 }
-                // If symlink_metadata is Ok but state is NotLinked (broken symlink case),
-                // treat as drift to warn about rather than silently link over.
             }
             EntryState::Conflict => {
                 drift_items.push((entry.name.clone(), "conflict"));
@@ -138,7 +133,8 @@ mod tests {
         }
     }
 
-    /// Run write_check with empty self_managed and empty unfiltered (no cross-platform entries).
+    /// Run write_check with the unfiltered slice equal to the filtered slice
+    /// (no cross-platform entries). Captures stdout into a String.
     fn capture_check(
         entries: &[ConfigEntry],
         self_managed: &[SelfManagedEntry],
@@ -386,10 +382,10 @@ mod tests {
         assert!(!output.contains("prun"), "output should not mention pruning, got: {output:?}");
     }
 
-    // ── Test 9: Prunes marker when target missing and in current filtered manifest ──
+    // ── Test 9: Auto-links stale self-managed entry and removes marker ───────
 
     #[test]
-    fn check_prunes_marker_when_target_missing_and_in_current_filtered_manifest() {
+    fn check_auto_links_stale_self_managed_entry_and_removes_marker() {
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.txt");
         let target = dir.path().join("target.txt");
@@ -397,7 +393,10 @@ mod tests {
         std::fs::write(&source, "hello").unwrap();
         // target NOT created on disk
 
-        // Add a self-managed marker for target (target in current manifest but missing on disk).
+        // When a self-managed marker exists for a target file that has been deleted,
+        // detect_state returns NotLinked (per state.rs rule 4), so the auto-link path
+        // runs and creates a symlink. The in-loop SM cleanup then removes the now-stale
+        // marker. This test verifies both the auto-link side effect AND the marker removal.
         add_self_managed(dir.path(), SelfManagedEntry {
             name: "test".to_string(),
             source: source.to_string_lossy().to_string(),
@@ -413,7 +412,9 @@ mod tests {
         write_check(&mut buf, &entries, &unfiltered, &sm, dir.path())
             .expect("write_check failed");
 
-        // Marker should be removed (condition 2: in current manifest, file missing).
+        assert!(target.is_symlink(), "target should have been auto-linked after write_check");
+
+        // Marker should be removed by the in-loop SM cleanup.
         let remaining = load_self_managed(dir.path()).unwrap();
         assert!(remaining.is_empty(), "marker should have been pruned when target missing in current manifest");
     }
