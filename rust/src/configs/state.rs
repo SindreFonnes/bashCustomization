@@ -105,6 +105,34 @@ pub(crate) fn is_self_managed(entries: &[SelfManagedEntry], target: &Path) -> bo
     entries.iter().any(|e| e.target == target_str.as_ref())
 }
 
+/// Write the self-managed marker file. If `entries` is empty, the file is
+/// removed (matching `remove_self_managed`'s "delete when empty" semantics).
+fn save_self_managed(project_root: &Path, entries: &[SelfManagedEntry]) -> Result<()> {
+    let path = managed_configs_path(project_root);
+
+    if entries.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("deleting {}", path.display()))?;
+        }
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating directory {}", parent.display()))?;
+    }
+
+    let file = SelfManagedFile {
+        self_managed: entries.to_vec(),
+    };
+    let serialized =
+        toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
+    std::fs::write(&path, serialized)
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// Prune entries from `local/managed_configs.toml` that are no longer
 /// reachable. An entry is stale when **either**:
 ///   1. its `target` is NOT in `all_platform_targets` (entry no longer in
@@ -124,43 +152,45 @@ pub(crate) fn is_self_managed(entries: &[SelfManagedEntry], target: &Path) -> bo
 ///
 /// Returns the number of entries removed (for testing/observability).
 /// Silent — does not print anything.
+///
+/// Pruning happens in-memory and the file is rewritten at most once. This
+/// keeps shell-startup `bashc configs check` cheap as the marker list grows.
 pub(crate) fn prune_stale_self_managed(
     project_root: &Path,
     current_platform_targets: &[String],
     all_platform_targets: &[String],
 ) -> Result<usize> {
-    let entries = load_self_managed(project_root)?;
+    let mut entries = load_self_managed(project_root)?;
     if entries.is_empty() {
         return Ok(0);
     }
 
-    // Iterate over a snapshot — collect stale targets first, then remove.
-    let stale: Vec<String> = entries
-        .iter()
-        .filter(|e| {
-            let in_all = all_platform_targets.iter().any(|t| t == &e.target);
-            let in_current = current_platform_targets.iter().any(|t| t == &e.target);
+    let before_len = entries.len();
 
-            // Condition 1: not in the unfiltered manifest at all.
-            if !in_all {
-                return true;
-            }
-            // Cross-platform safety: if it's in the unfiltered manifest but
-            // not the current platform's view, preserve it unconditionally.
-            if !in_current {
-                return false;
-            }
-            // Condition 2: in current platform manifest but file missing on disk.
-            !Path::new(&e.target).exists()
-        })
-        .map(|e| e.target.clone())
-        .collect();
+    entries.retain(|e| {
+        let in_all = all_platform_targets.iter().any(|t| t == &e.target);
+        let in_current = current_platform_targets.iter().any(|t| t == &e.target);
 
-    for target in &stale {
-        remove_self_managed(project_root, target)?;
+        // Condition 1: not in the unfiltered manifest at all → stale, drop.
+        if !in_all {
+            return false;
+        }
+        // Cross-platform safety: in the unfiltered manifest but not the
+        // current platform's view → preserve unconditionally.
+        if !in_current {
+            return true;
+        }
+        // Condition 2: in current platform manifest but file missing on disk → drop.
+        Path::new(&e.target).exists()
+    });
+
+    let removed = before_len - entries.len();
+
+    if removed > 0 {
+        save_self_managed(project_root, &entries)?;
     }
 
-    Ok(stale.len())
+    Ok(removed)
 }
 
 /// Detect the current state of a config entry.

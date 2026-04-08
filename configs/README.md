@@ -37,16 +37,17 @@ The `platform` field is optional. Entries without it apply on all platforms.
 
 `bashc configs check` is purpose-built for shell startup. It loads the manifest filtered for the current platform and computes the state of each entry:
 
-- **`NotLinked` with no file at the target path** — the symlink is created automatically (safe — no existing data would be clobbered). A single summary line is printed listing the count and names of newly linked configs.
+- **`NotLinked` with no file at the target path** — the symlink is created automatically (safe — no existing data would be clobbered), provided the repo source actually exists. A single summary line is printed listing the per-entry count and the de-duplicated group names of newly linked configs.
 
   ```
-  bashc: linked 2 configs (claude, zellij)
+  bashc: linked 2 config files (claude, zellij)
   ```
 
+- **`NotLinked` with the repo source missing** — left untouched and surfaced as drift with the tag `missing source`. Auto-linking would otherwise create a dangling symlink that `detect_state` then misreports as `Linked`.
 - **`Conflict`** (a real file exists at the target) or **`WrongSymlink`** (symlink points elsewhere) — the entry is left untouched and a warning line is printed, ending with a hint to run `bashc configs status` for details.
 
   ```
-  bashc: ⚠ 2 configs need attention (zellij: conflict, claude: wrong symlink) — run 'bashc configs status'
+  bashc: ⚠ 2 config files need attention (zellij: conflict, claude: wrong symlink) — run 'bashc configs status'
   ```
 - **`Linked`** or **`SelfManaged`** — no action, no output.
 

@@ -54,6 +54,16 @@ fn write_check(
                 // Silent — no action needed.
             }
             EntryState::NotLinked => {
+                // Guard against creating dangling symlinks: a symlink whose
+                // dest equals `entry.source` is reported as `Linked` by
+                // `detect_state` even when the source file is missing, so
+                // creating a broken link here would silently mask drift on
+                // every subsequent run. Surface the missing source as drift
+                // instead so the user gets visible feedback.
+                if !entry.source.exists() {
+                    drift_items.push((entry.name.clone(), "missing source"));
+                    continue;
+                }
                 create_symlink(entry)?;
                 linked_count += 1;
                 linked_names.push(entry.name.clone());
@@ -85,11 +95,17 @@ fn write_check(
     prune_stale_self_managed(project_root, &current_platform_targets, &all_platform_targets)?;
 
     // Emit output lines.
+    //
+    // The count is the raw number of *entries* (i.e. one per manifest row),
+    // while the displayed names are de-duplicated by group. We say "config
+    // files" rather than "configs" so the count and names line up: a manifest
+    // with two `claude` rows that both auto-link prints "linked 2 config files
+    // (claude)" rather than the misleading "linked 2 configs (claude)".
     if linked_count > 0 {
         linked_names.sort();
         linked_names.dedup();
         let names_display = linked_names.join(", ");
-        writeln!(writer, "bashc: linked {linked_count} configs ({names_display})")?;
+        writeln!(writer, "bashc: linked {linked_count} config files ({names_display})")?;
     }
 
     if !drift_items.is_empty() {
@@ -104,7 +120,7 @@ fn write_check(
         };
         writeln!(
             writer,
-            "bashc: \u{26a0} {count} configs need attention ({items_display}) \u{2014} run 'bashc configs status'"
+            "bashc: \u{26a0} {count} config files need attention ({items_display}) \u{2014} run 'bashc configs status'"
         )?;
     }
 
@@ -210,7 +226,7 @@ mod tests {
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source, "symlink should point to source");
 
-        assert!(output.contains("linked 1 configs"), "output should mention linked count, got: {output:?}");
+        assert!(output.contains("linked 1 config files"), "output should mention linked count, got: {output:?}");
         assert!(output.contains("test"), "output should mention the entry name, got: {output:?}");
     }
 
@@ -248,7 +264,7 @@ mod tests {
         assert!(target2.is_symlink(), "target2 should be a symlink");
         assert!(target3.is_symlink(), "target3 should be a symlink");
 
-        assert!(output.contains("linked 3 configs"), "should say '3 configs', got: {output:?}");
+        assert!(output.contains("linked 3 config files"), "should say '3 config files', got: {output:?}");
         assert!(output.contains("claude"), "should mention 'claude', got: {output:?}");
         assert!(output.contains("zellij"), "should mention 'zellij', got: {output:?}");
 
@@ -282,7 +298,7 @@ mod tests {
         assert_eq!(content, "local content", "target content should be unchanged");
 
         assert!(output.contains("\u{26a0}"), "output should contain warning symbol, got: {output:?}");
-        assert!(output.contains("1 configs need attention"), "output should mention count, got: {output:?}");
+        assert!(output.contains("1 config files need attention"), "output should mention count, got: {output:?}");
         assert!(output.contains("conflict"), "output should mention 'conflict', got: {output:?}");
     }
 
@@ -345,8 +361,8 @@ mod tests {
         assert_eq!(content, "local content");
 
         // Both output lines should be present.
-        assert!(output.contains("linked 1 configs"), "should have linked line, got: {output:?}");
-        assert!(output.contains("configs need attention"), "should have warning line, got: {output:?}");
+        assert!(output.contains("linked 1 config files"), "should have linked line, got: {output:?}");
+        assert!(output.contains("config files need attention"), "should have warning line, got: {output:?}");
     }
 
     // ── Test 8: Prunes marker when entry no longer in manifest ───────────────
@@ -460,7 +476,44 @@ mod tests {
         assert_eq!(remaining[0].target, other_platform_target_str);
     }
 
-    // ── Test 11: Returns Ok even with unresolved drift ───────────────────────
+    // ── Test 11: NotLinked with missing source surfaces as drift, no symlink created
+
+    #[test]
+    fn check_does_not_create_dangling_symlink_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.txt");
+        let target = dir.path().join("target.txt");
+
+        // source intentionally NOT created — typo or unmigrated entry
+        // target intentionally NOT created — would otherwise be NotLinked
+
+        let entry = make_entry("test", &source, &target);
+        let output = capture_check(&[entry], &[], dir.path());
+
+        // No symlink should have been created — creating one would result in
+        // a dangling link that detect_state misreports as Linked.
+        assert!(!target.exists(), "target should not exist");
+        assert!(
+            std::fs::symlink_metadata(&target).is_err(),
+            "target should not exist as any kind of filesystem entry"
+        );
+
+        // Should be reported as drift with the "missing source" tag.
+        assert!(
+            output.contains("missing source"),
+            "output should report missing source as drift, got: {output:?}"
+        );
+        assert!(
+            output.contains("\u{26a0}"),
+            "output should include warning symbol, got: {output:?}"
+        );
+        assert!(
+            !output.contains("linked"),
+            "output should not claim to have linked anything, got: {output:?}"
+        );
+    }
+
+    // ── Test 12: Returns Ok even with unresolved drift ───────────────────────
 
     #[test]
     fn check_returns_ok_even_with_unresolved_drift() {
