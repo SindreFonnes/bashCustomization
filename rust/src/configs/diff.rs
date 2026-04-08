@@ -381,6 +381,34 @@ mod tests {
     }
 
     #[test]
+    fn print_diff_to_stderr_returns_err_for_binary_target() {
+        // The interactive `bashc configs link` View-diff option calls
+        // print_diff_to_stderr; binary targets fail UTF-8 decoding and bubble
+        // an error back. The link command's prompt loop catches this so the
+        // whole command isn't aborted — this test pins the error path.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("binary.bin");
+        std::fs::write(&source, "hello\n").unwrap();
+        std::fs::write(&target, [0xff, 0xfe, 0x00, 0x01]).unwrap();
+
+        let result = print_diff_to_stderr(&source, &target);
+        assert!(result.is_err(), "binary target should fail diff");
+    }
+
+    #[test]
+    fn print_file_to_stderr_returns_err_for_missing_path() {
+        // The View-local / View-repo options call print_file_to_stderr;
+        // unreadable paths bubble an error back. The link command's prompt
+        // loop catches this so the whole command isn't aborted.
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("does_not_exist.txt");
+
+        let result = print_file_to_stderr(&missing, "local");
+        assert!(result.is_err(), "missing path should fail");
+    }
+
+    #[test]
     fn write_diff_shows_diff_for_self_managed() {
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.txt");

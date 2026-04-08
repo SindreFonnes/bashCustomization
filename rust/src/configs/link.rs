@@ -9,7 +9,9 @@ use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
-use crate::configs::state::{SelfManagedEntry, add_self_managed, detect_state, load_self_managed};
+use crate::configs::state::{
+    SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
+};
 use crate::configs::{ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,17 @@ fn write_link(
             }
             EntryState::NotLinked => {
                 create_symlink(entry)?;
+                // If a stale self-managed marker exists for this target, remove
+                // it — the entry is now a properly managed symlink, not a local
+                // override. `detect_state` reports `NotLinked` when the marker
+                // is present but the file has been deleted, so without this
+                // cleanup `managed_configs.toml` would accumulate dead entries
+                // every time the user re-runs `bashc configs link`. Mirrors the
+                // same cleanup `bashc configs check` already performs.
+                let target_str = entry.target.to_string_lossy();
+                if self_managed.iter().any(|e| e.target == target_str.as_ref()) {
+                    remove_self_managed(project_root, &target_str)?;
+                }
                 writeln!(
                     writer,
                     "  \u{2713} {source_display} \u{2192} {target_display} (linked)"
@@ -353,16 +366,31 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
 
         match selection {
             0 => {
-                // Show unified diff, then loop back to menu
-                crate::configs::diff::print_diff_to_stderr(&entry.source, &entry.target)?;
+                // Show unified diff, then loop back to menu. View options are
+                // informational, so a read failure (binary, directory,
+                // permission denied, etc.) must not abort the whole `link`
+                // command — surface the error and let the user pick again.
+                if let Err(err) =
+                    crate::configs::diff::print_diff_to_stderr(&entry.source, &entry.target)
+                {
+                    eprintln!("Failed to show diff: {}", err);
+                }
             }
             1 => {
                 // Show local file contents
-                crate::configs::diff::print_file_to_stderr(&entry.target, "local")?;
+                if let Err(err) =
+                    crate::configs::diff::print_file_to_stderr(&entry.target, "local")
+                {
+                    eprintln!("Failed to show local version: {}", err);
+                }
             }
             2 => {
                 // Show repo file contents
-                crate::configs::diff::print_file_to_stderr(&entry.source, "repo")?;
+                if let Err(err) =
+                    crate::configs::diff::print_file_to_stderr(&entry.source, "repo")
+                {
+                    eprintln!("Failed to show repo version: {}", err);
+                }
             }
             3 => return Ok(Strategy::Replace),
             4 => return Ok(Strategy::Discard),
@@ -844,6 +872,62 @@ mod tests {
         assert!(!bak_path.exists());
 
         assert!(output.contains("(discarded & linked)"));
+    }
+
+    // ── Test 14b: Link cleans up stale self-managed marker ───────────────────
+
+    #[test]
+    fn link_removes_stale_self_managed_marker_when_linking_not_linked_entry() {
+        // Scenario: user previously chose "Keep" for this target, then later
+        // deleted the local file. detect_state now returns NotLinked, so
+        // write_link creates a symlink — and must also drop the stale marker
+        // so managed_configs.toml does not accumulate dead entries.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        // target intentionally not created (file was deleted)
+
+        // Pre-existing stale marker for this target.
+        crate::configs::state::add_self_managed(
+            dir.path(),
+            SelfManagedEntry {
+                name: "test".to_string(),
+                source: source.to_string_lossy().to_string(),
+                target: target.to_string_lossy().to_string(),
+            },
+        )
+        .unwrap();
+
+        let sm = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert_eq!(sm.len(), 1, "precondition: marker should be present");
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let home = fake_home();
+        let mut buf: Vec<u8> = Vec::new();
+        write_link(
+            &mut buf,
+            &[entry],
+            &sm,
+            &home,
+            dir.path(),
+            None,
+            false,
+        )
+        .expect("write_link failed");
+
+        // Symlink should now exist.
+        assert!(target.is_symlink(), "target should be a symlink after link");
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // Stale marker should have been removed.
+        let remaining = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert!(
+            remaining.is_empty(),
+            "stale marker should have been removed, got: {remaining:?}"
+        );
     }
 
     // ── Test 14: Replace with directory target ───────────────────────────────
