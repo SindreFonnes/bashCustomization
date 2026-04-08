@@ -57,3 +57,15 @@ load_shell_extentionfiles () {
 		echo "Extentions loaded!"
 	fi
 }
+
+# Run 'bashc configs check' at interactive shell startup to detect config drift.
+# Skipped when: non-interactive shell, BASHC_SKIP_CONFIG_CHECK is set, or bashc is not on PATH.
+bashc_check_configs () {
+	case $- in
+		*i*) ;;
+		*) return 0 ;;
+	esac
+	[ -n "${BASHC_SKIP_CONFIG_CHECK:-}" ] && return 0
+	command -v bashc >/dev/null 2>&1 || return 0
+	bashc configs check || true
+}
