@@ -61,9 +61,16 @@ The command exits 0 in all non-fatal cases, including when unresolved drift exis
 
 `bashc_check_configs` in `general_functions.sh` invokes `bashc configs check` on every interactive shell startup, after modules are loaded. It is skipped automatically for non-interactive shells.
 
+The hook also prints a warning to stderr in two cases that would otherwise hide drift:
+
+- The `bashc` binary is not on `PATH` — the check is skipped and a warning explains why (so the framework still works on machines where the Rust binary has not been built yet, without silently masking config drift).
+- `bashc configs check` itself exits non-zero — the hook prints the exit status and a hint to run the command manually.
+
+In both cases the hook returns 0 so the shell never breaks; only the warning lines are written.
+
 ## Opting out
 
-Set `BASHC_SKIP_CONFIG_CHECK=1` in the environment to suppress the startup check entirely. This is useful for CI runners, heavily nested subshells, or any context where the output is unwanted.
+Set `BASHC_SKIP_CONFIG_CHECK=1` in the environment to suppress the startup check entirely. This silences both the check itself and the two warning lines described above, and is useful for CI runners, heavily nested subshells, or any context where the output is unwanted.
 
 ## Auto-pruning of `local/managed_configs.toml`
 

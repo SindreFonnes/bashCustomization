@@ -75,10 +75,10 @@ A new function added to `general_functions.sh` (or a dedicated file under `progr
 **Required behavior of the shell function:**
 
 1. Returns immediately if the shell is not interactive (e.g., `[[ $- == *i* ]]` or POSIX equivalent — must work for both bash and zsh).
-2. Returns immediately if `BASHC_SKIP_CONFIG_CHECK` is set to a non-empty value.
-3. Returns immediately if the `bashc` binary is not on `PATH` (so the framework still works on machines where the Rust binary has not been built yet).
+2. Returns immediately if `BASHC_SKIP_CONFIG_CHECK` is set to a non-empty value. This must also suppress the two warning cases described in steps 3 and 5 — the env var is the single user-visible kill switch for everything the hook prints.
+3. If the `bashc` binary is not on `PATH`, prints a single warning line to stderr explaining the skip (and pointing at `BASHC_SKIP_CONFIG_CHECK` for suppression) and then returns 0. The hook must not fail silently in this case — a silent skip during early implementation hid real config drift, so the warning is required so the user notices that the automatic check is not running. The framework still works on machines where the Rust binary has not been built yet.
 4. Otherwise, invokes `bashc configs check` and forwards its output to the user's terminal.
-5. Never causes the shell to exit on failure — any non-zero exit from the binary is swallowed.
+5. Never causes the shell to exit on failure. Any non-zero exit from the binary is reported as a warning line to stderr (with the exit status and a hint to run the command manually) and then swallowed.
 
 **Constraints:**
 

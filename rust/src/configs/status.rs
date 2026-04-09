@@ -113,6 +113,18 @@ pub(crate) fn write_status(
                         "  ✗ {source_display} → {target_display} [conflict: local file exists]"
                     )
                 }
+                EntryState::NotLinked if !entry.source.exists() => {
+                    // Source missing AND target absent. detect_state still
+                    // returns NotLinked, but reporting "[not linked]" would
+                    // be misleading: `bashc configs link` bails on missing
+                    // sources and `bashc configs check` already surfaces
+                    // this as drift ("missing source"). Surface the same
+                    // diagnosis here so `status` does not contradict the
+                    // other commands.
+                    format!(
+                        "  ✗ {source_display} → {target_display} [conflict: source missing]"
+                    )
+                }
                 EntryState::NotLinked if stale_sm => {
                     format!(
                         "  - {source_display} → {target_display} [not linked] (stale self-managed entry)"
@@ -336,6 +348,32 @@ mod tests {
         assert!(
             !output.contains("✓"),
             "should not also render a checkmark, got: {output:?}"
+        );
+    }
+
+    #[test]
+    fn not_linked_with_missing_source_shows_conflict() {
+        // Source missing AND target absent: detect_state returns NotLinked,
+        // but reporting "[not linked]" would contradict `bashc configs link`
+        // (which bails on missing sources) and `bashc configs check`
+        // (which surfaces this as drift "missing source"). status should
+        // produce the same drift diagnosis instead.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.kdl");
+        let target = dir.path().join("missing_target.kdl");
+        // Neither source nor target created.
+
+        let entry = make_entry("zellij", source, target);
+
+        let output = capture_status(&[entry], &[]);
+        assert!(output.contains("✗"), "should use cross glyph, got: {output:?}");
+        assert!(
+            output.contains("source missing"),
+            "should mention missing source, got: {output:?}"
+        );
+        assert!(
+            !output.contains("[not linked]"),
+            "should not also render [not linked], got: {output:?}"
         );
     }
 
