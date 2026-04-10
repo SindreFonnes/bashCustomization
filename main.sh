@@ -38,3 +38,5 @@ check_for_shell_update_once_a_day () {
 }
 
 check_for_shell_update_once_a_day
+
+bashc_check_configs
