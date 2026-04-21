@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PATH": "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  },
   "permissions": {
     "allow": [
       "Bash(git status*)",
@@ -39,15 +42,21 @@
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
-    "rust-analyzer-lsp@claude-plugins-official": true
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true
   },
-  "effortLevel": "high",
+  "extraKnownMarketplaces": {
+    "chrome-devtools-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "ChromeDevTools/chrome-devtools-mcp"
+      }
+    }
+  },
   "sandbox": {
     "ripgrep": {
       "command": "/opt/homebrew/bin/rg"
     }
   },
-  "env": {
-    "PATH": "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-  }
+  "effortLevel": "high"
 }
