@@ -3,16 +3,16 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
-use dialoguer::Select;
+use anyhow::{bail, Result};
 use dialoguer::theme::ColorfulTheme;
+use dialoguer::Select;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{
-    SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
+    add_self_managed, detect_state, load_self_managed, remove_self_managed, SelfManagedEntry,
 };
-use crate::configs::{ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir};
+use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState, Strategy};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -32,8 +32,7 @@ pub fn run_link(
         let filtered = filter_by_name(&all_entries, name);
         if filtered.is_empty() {
             let available: Vec<&str> = {
-                let mut names: Vec<&str> =
-                    all_entries.iter().map(|e| e.name.as_str()).collect();
+                let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
                 names.sort();
                 names.dedup();
                 names
@@ -97,6 +96,12 @@ fn write_link(
                     "  \u{2713} {source_display} \u{2192} {target_display} (already linked)"
                 )?;
             }
+            EntryState::LinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, dangling symlink)"
+                )?;
+            }
             EntryState::NotLinked => {
                 create_symlink(entry)?;
                 // If a stale self-managed marker exists for this target, remove
@@ -113,6 +118,12 @@ fn write_link(
                 writeln!(
                     writer,
                     "  \u{2713} {source_display} \u{2192} {target_display} (linked)"
+                )?;
+            }
+            EntryState::NotLinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, cannot link)"
                 )?;
             }
             EntryState::SelfManaged => {
@@ -135,7 +146,11 @@ fn write_link(
                     Strategy::Prompt => {
                         if interactive {
                             // Interactive conflict resolution loop
-                            let resolved = prompt_conflict_resolution(entry, home)?;
+                            let resolved = prompt_conflict_resolution(
+                                entry,
+                                home,
+                                matches!(state, EntryState::Conflict),
+                            )?;
                             match resolved {
                                 Strategy::Replace => {
                                     resolve_replace_backup(writer, entry, home)?;
@@ -144,7 +159,14 @@ fn write_link(
                                     resolve_discard(writer, entry, home, &state)?;
                                 }
                                 Strategy::Keep => {
-                                    resolve_keep(writer, entry, home, project_root)?;
+                                    if matches!(state, EntryState::Conflict) {
+                                        resolve_keep(writer, entry, home, project_root)?;
+                                    } else {
+                                        writeln!(
+                                            writer,
+                                            "  \u{2717} {source_display} \u{2192} {target_display} (wrong symlink \u{2014} cannot mark self-managed)"
+                                        )?;
+                                    }
                                 }
                                 Strategy::Prompt => {
                                     // User chose "Skip for now"
@@ -169,7 +191,14 @@ fn write_link(
                         resolve_discard(writer, entry, home, &state)?;
                     }
                     Strategy::Keep => {
-                        resolve_keep(writer, entry, home, project_root)?;
+                        if matches!(state, EntryState::Conflict) {
+                            resolve_keep(writer, entry, home, project_root)?;
+                        } else {
+                            writeln!(
+                                writer,
+                                "  \u{2717} {source_display} \u{2192} {target_display} (wrong symlink \u{2014} cannot mark self-managed)"
+                            )?;
+                        }
                     }
                 }
             }
@@ -213,11 +242,7 @@ pub(crate) fn create_symlink(entry: &ConfigEntry) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Replace target with a symlink, backing up the original as `.bak`.
-fn resolve_replace_backup(
-    writer: &mut impl Write,
-    entry: &ConfigEntry,
-    home: &Path,
-) -> Result<()> {
+fn resolve_replace_backup(writer: &mut impl Write, entry: &ConfigEntry, home: &Path) -> Result<()> {
     let source_display = format_source(entry);
     let target_display = display_target(&entry.target, home);
     let bak_path = PathBuf::from(format!("{}.bak", entry.target.display()));
@@ -265,11 +290,7 @@ fn resolve_discard(
         EntryState::WrongSymlink => {
             // Remove the symlink itself (not its target)
             std::fs::remove_file(&entry.target).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to remove symlink {}: {}",
-                    entry.target.display(),
-                    e
-                )
+                anyhow::anyhow!("Failed to remove symlink {}: {}", entry.target.display(), e)
             })?;
         }
         _ => {
@@ -316,18 +337,15 @@ fn resolve_keep(
 
 /// Remove a filesystem target (file, directory, or symlink).
 fn remove_target(path: &Path) -> Result<()> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| {
-        anyhow::anyhow!("Failed to read metadata for {}: {}", path.display(), e)
-    })?;
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read metadata for {}: {}", path.display(), e))?;
 
     if meta.file_type().is_symlink() || meta.file_type().is_file() {
-        std::fs::remove_file(path).map_err(|e| {
-            anyhow::anyhow!("Failed to remove {}: {}", path.display(), e)
-        })?;
+        std::fs::remove_file(path)
+            .map_err(|e| anyhow::anyhow!("Failed to remove {}: {}", path.display(), e))?;
     } else if meta.file_type().is_dir() {
-        std::fs::remove_dir_all(path).map_err(|e| {
-            anyhow::anyhow!("Failed to remove directory {}: {}", path.display(), e)
-        })?;
+        std::fs::remove_dir_all(path)
+            .map_err(|e| anyhow::anyhow!("Failed to remove directory {}: {}", path.display(), e))?;
     }
 
     Ok(())
@@ -339,7 +357,11 @@ fn remove_target(path: &Path) -> Result<()> {
 
 /// Show an interactive menu for conflict resolution. Returns the chosen strategy.
 /// `Strategy::Prompt` means "Skip for now".
-fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strategy> {
+fn prompt_conflict_resolution(
+    entry: &ConfigEntry,
+    home: &Path,
+    allow_keep: bool,
+) -> Result<Strategy> {
     let target_display = display_target(&entry.target, home);
 
     loop {
@@ -348,7 +370,7 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
             target_display
         );
 
-        let items = &[
+        let items_with_keep = &[
             "View diff (repo vs local)",
             "View local version",
             "View repo version",
@@ -357,6 +379,19 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
             "Keep local \u{2014} mark as self-managed on this machine",
             "Skip for now",
         ];
+        let items_without_keep = &[
+            "View diff (repo vs local)",
+            "View local version",
+            "View repo version",
+            "Replace local \u{2014} backup as .bak, then symlink",
+            "Replace local \u{2014} discard original, then symlink",
+            "Skip for now",
+        ];
+        let items = if allow_keep {
+            items_with_keep.as_slice()
+        } else {
+            items_without_keep.as_slice()
+        };
 
         let selection = Select::with_theme(&ColorfulTheme::default())
             .items(items)
@@ -378,29 +413,27 @@ fn prompt_conflict_resolution(entry: &ConfigEntry, home: &Path) -> Result<Strate
             }
             1 => {
                 // Show local file contents
-                if let Err(err) =
-                    crate::configs::diff::print_file_to_stderr(&entry.target, "local")
+                if let Err(err) = crate::configs::diff::print_file_to_stderr(&entry.target, "local")
                 {
                     eprintln!("Failed to show local version: {}", err);
                 }
             }
             2 => {
                 // Show repo file contents
-                if let Err(err) =
-                    crate::configs::diff::print_file_to_stderr(&entry.source, "repo")
+                if let Err(err) = crate::configs::diff::print_file_to_stderr(&entry.source, "repo")
                 {
                     eprintln!("Failed to show repo version: {}", err);
                 }
             }
             3 => return Ok(Strategy::Replace),
             4 => return Ok(Strategy::Discard),
-            5 => return Ok(Strategy::Keep),
+            5 if allow_keep => return Ok(Strategy::Keep),
+            5 => return Ok(Strategy::Prompt), // Prompt = skip
             6 => return Ok(Strategy::Prompt), // Prompt = skip
             _ => unreachable!(),
         }
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -412,8 +445,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
-    use crate::configs::Strategy;
     use crate::configs::state::SelfManagedEntry;
+    use crate::configs::Strategy;
 
     fn fake_home() -> PathBuf {
         PathBuf::from("/home/testuser")
@@ -443,10 +476,7 @@ mod tests {
     }
 
     /// Helper for tests that don't involve conflict resolution.
-    fn capture_link(
-        entries: &[ConfigEntry],
-        self_managed: &[SelfManagedEntry],
-    ) -> String {
+    fn capture_link(entries: &[ConfigEntry], self_managed: &[SelfManagedEntry]) -> String {
         let home = fake_home();
         let dir = tempdir().unwrap();
         let mut buf: Vec<u8> = Vec::new();
@@ -572,7 +602,10 @@ mod tests {
         let output = capture_link(&[entry], &sm);
 
         // The regular file should still be there, not replaced.
-        assert!(!target.is_symlink(), "target should not have been replaced with a symlink");
+        assert!(
+            !target.is_symlink(),
+            "target should not have been replaced with a symlink"
+        );
         assert!(output.contains("\u{25CB}"));
         assert!(output.contains("(self-managed, skipping)"));
     }
@@ -615,7 +648,10 @@ mod tests {
 
         assert!(result.is_err(), "should error when source is missing");
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("Source file(s) not found"), "error should mention missing source");
+        assert!(
+            msg.contains("Source file(s) not found"),
+            "error should mention missing source"
+        );
     }
 
     // ── Test 6: Conflict entry is skipped with message (non-interactive) ─────
@@ -650,15 +686,13 @@ mod tests {
         std::fs::write(&target, "local content").unwrap();
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Replace),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
 
         // Target should now be a symlink to source
-        assert!(target.is_symlink(), "target should be a symlink after replace");
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after replace"
+        );
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source);
 
@@ -685,12 +719,7 @@ mod tests {
         std::fs::write(&bak_path, "old backup content").unwrap();
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Replace),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
 
         // Target should be a symlink
         assert!(target.is_symlink());
@@ -717,15 +746,13 @@ mod tests {
         std::fs::write(&target, "local content").unwrap();
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Discard),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
 
         // Target should be a symlink to source
-        assert!(target.is_symlink(), "target should be a symlink after discard");
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after discard"
+        );
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source);
 
@@ -750,12 +777,7 @@ mod tests {
         symlink(&other, &target).unwrap(); // wrong symlink
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Discard),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
 
         // Target should now point to source
         assert!(target.is_symlink());
@@ -780,15 +802,13 @@ mod tests {
         std::fs::write(&target, "local content").unwrap();
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Keep),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Keep));
 
         // Target should remain a regular file (not a symlink)
-        assert!(!target.is_symlink(), "target should not be a symlink after keep");
+        assert!(
+            !target.is_symlink(),
+            "target should not be a symlink after keep"
+        );
         let content = std::fs::read_to_string(&target).unwrap();
         assert_eq!(content, "local content");
 
@@ -799,6 +819,31 @@ mod tests {
         assert_eq!(sm[0].target, target.to_string_lossy().as_ref());
 
         assert!(output.contains("(kept \u{2014} marked self-managed)"));
+    }
+
+    #[test]
+    fn force_keep_does_not_mark_wrong_symlink_self_managed() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let other = dir.path().join("other.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&other, "other content").unwrap();
+        symlink(&other, &target).unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Keep));
+
+        let sm = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert!(
+            sm.is_empty(),
+            "wrong symlink should not create a self-managed marker"
+        );
+
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, other, "wrong symlink should remain untouched");
+        assert!(output.contains("cannot mark self-managed"));
     }
 
     // ── Test 12: Entry strategy fallback when force is None ──────────────────
@@ -813,12 +858,8 @@ mod tests {
         std::fs::write(&target, "local content").unwrap();
 
         // Entry has Replace strategy (not Prompt), force is None
-        let entry = make_entry_with_strategy(
-            "test",
-            source.clone(),
-            target.clone(),
-            Strategy::Replace,
-        );
+        let entry =
+            make_entry_with_strategy("test", source.clone(), target.clone(), Strategy::Replace);
         let output = capture_link_with_force(
             &[entry],
             &[],
@@ -827,7 +868,10 @@ mod tests {
         );
 
         // Should have used Replace strategy (backup + symlink)
-        assert!(target.is_symlink(), "target should be a symlink (entry strategy = Replace)");
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink (entry strategy = Replace)"
+        );
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source);
 
@@ -849,21 +893,15 @@ mod tests {
         std::fs::write(&target, "local content").unwrap();
 
         // Entry says Keep, but force says Discard — force wins
-        let entry = make_entry_with_strategy(
-            "test",
-            source.clone(),
-            target.clone(),
-            Strategy::Keep,
-        );
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Discard),
-        );
+        let entry =
+            make_entry_with_strategy("test", source.clone(), target.clone(), Strategy::Keep);
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
 
         // Should have used Discard (force overrides entry strategy)
-        assert!(target.is_symlink(), "target should be a symlink (force = Discard)");
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink (force = Discard)"
+        );
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source);
 
@@ -906,16 +944,8 @@ mod tests {
         let entry = make_entry("test", source.clone(), target.clone());
         let home = fake_home();
         let mut buf: Vec<u8> = Vec::new();
-        write_link(
-            &mut buf,
-            &[entry],
-            &sm,
-            &home,
-            dir.path(),
-            None,
-            false,
-        )
-        .expect("write_link failed");
+        write_link(&mut buf, &[entry], &sm, &home, dir.path(), None, false)
+            .expect("write_link failed");
 
         // Symlink should now exist.
         assert!(target.is_symlink(), "target should be a symlink after link");
@@ -944,14 +974,12 @@ mod tests {
         std::fs::write(target.join("file.txt"), "local").unwrap();
 
         let entry = make_entry("test", source.clone(), target.clone());
-        let output = capture_link_with_force(
-            &[entry],
-            &[],
-            dir.path(),
-            Some(Strategy::Replace),
-        );
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
 
-        assert!(target.is_symlink(), "target should be a symlink after replace");
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after replace"
+        );
         let link_dest = std::fs::read_link(&target).unwrap();
         assert_eq!(link_dest, source);
 

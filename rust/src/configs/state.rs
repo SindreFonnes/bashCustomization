@@ -65,10 +65,8 @@ pub(crate) fn add_self_managed(project_root: &Path, entry: SelfManagedEntry) -> 
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
 
-    let serialized =
-        toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-    std::fs::write(&path, serialized)
-        .with_context(|| format!("writing {}", path.display()))?;
+    let serialized = toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
+    std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -88,13 +86,11 @@ pub(crate) fn remove_self_managed(project_root: &Path, target: &str) -> Result<(
     file.self_managed.retain(|e| e.target != target);
 
     if file.self_managed.is_empty() {
-        std::fs::remove_file(&path)
-            .with_context(|| format!("deleting {}", path.display()))?;
+        std::fs::remove_file(&path).with_context(|| format!("deleting {}", path.display()))?;
     } else {
         let serialized =
             toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-        std::fs::write(&path, serialized)
-            .with_context(|| format!("writing {}", path.display()))?;
+        std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
     }
     Ok(())
 }
@@ -112,8 +108,7 @@ fn save_self_managed(project_root: &Path, entries: &[SelfManagedEntry]) -> Resul
 
     if entries.is_empty() {
         if path.exists() {
-            std::fs::remove_file(&path)
-                .with_context(|| format!("deleting {}", path.display()))?;
+            std::fs::remove_file(&path).with_context(|| format!("deleting {}", path.display()))?;
         }
         return Ok(());
     }
@@ -126,10 +121,8 @@ fn save_self_managed(project_root: &Path, entries: &[SelfManagedEntry]) -> Resul
     let file = SelfManagedFile {
         self_managed: entries.to_vec(),
     };
-    let serialized =
-        toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-    std::fs::write(&path, serialized)
-        .with_context(|| format!("writing {}", path.display()))?;
+    let serialized = toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
+    std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -197,21 +190,27 @@ pub(crate) fn prune_stale_self_managed(
 ///
 /// Precedence (highest to lowest):
 /// 1. Symlink at target pointing to the correct source -> `Linked`
-/// 2. Target exists AND is in self_managed list -> `SelfManaged`
-/// 3. Target is a symlink pointing elsewhere -> `WrongSymlink`
-/// 4. Target exists as a regular file/dir -> `Conflict`
-/// 5. Target is in self_managed list but file no longer exists -> `NotLinked`
-/// 6. Target does not exist -> `NotLinked`
+/// 2. Correct symlink whose source is missing -> `LinkedMissingSource`
+/// 3. Target exists AND is in self_managed list -> `SelfManaged`
+/// 4. Target is a symlink pointing elsewhere -> `WrongSymlink`
+/// 5. Target exists as a regular file/dir -> `Conflict`
+/// 6. Target is in self_managed list but file no longer exists -> `NotLinked`
+/// 7. Target does not exist -> `NotLinked`
 pub(crate) fn detect_state(entry: &ConfigEntry, self_managed: &[SelfManagedEntry]) -> EntryState {
     // Check whether a symlink (or any filesystem object) exists at target.
     // symlink_metadata does NOT follow symlinks, so it returns Ok even for broken links.
     let meta = std::fs::symlink_metadata(&entry.target);
     let target_exists = meta.is_ok();
+    let source_exists = entry.source.exists();
 
     // 1. Check if target is a symlink pointing to the correct source.
     if let Ok(link_dest) = std::fs::read_link(&entry.target) {
         if link_dest == entry.source {
-            return EntryState::Linked;
+            return if source_exists {
+                EntryState::Linked
+            } else {
+                EntryState::LinkedMissingSource
+            };
         }
         // It's a symlink, but points somewhere else.
         // Before returning WrongSymlink check self-managed (rule 2 only applies to non-symlink
@@ -230,7 +229,11 @@ pub(crate) fn detect_state(entry: &ConfigEntry, self_managed: &[SelfManagedEntry
     }
 
     // 5 & 6. Target does not exist — NotLinked regardless of self_managed list.
-    EntryState::NotLinked
+    if source_exists {
+        EntryState::NotLinked
+    } else {
+        EntryState::NotLinkedMissingSource
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +268,18 @@ mod tests {
     }
 
     #[test]
+    fn detect_linked_missing_source_for_dangling_managed_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.txt");
+        let target = dir.path().join("target.txt");
+
+        symlink(&source, &target).unwrap();
+
+        let entry = make_entry(source, target);
+        assert_eq!(detect_state(&entry, &[]), EntryState::LinkedMissingSource);
+    }
+
+    #[test]
     fn detect_not_linked_when_target_absent() {
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.txt");
@@ -275,6 +290,19 @@ mod tests {
 
         let entry = make_entry(source, target);
         assert_eq!(detect_state(&entry, &[]), EntryState::NotLinked);
+    }
+
+    #[test]
+    fn detect_not_linked_missing_source_when_source_and_target_absent() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.txt");
+        let target = dir.path().join("missing_target.txt");
+
+        let entry = make_entry(source, target);
+        assert_eq!(
+            detect_state(&entry, &[]),
+            EntryState::NotLinkedMissingSource
+        );
     }
 
     #[test]
@@ -483,8 +511,11 @@ mod tests {
         let target_str = target.to_string_lossy().to_string();
 
         // Add a marker for target — but do NOT create the file on disk.
-        add_self_managed(dir.path(), make_sm_entry("nvim", "/src/nvim/init.lua", &target_str))
-            .unwrap();
+        add_self_managed(
+            dir.path(),
+            make_sm_entry("nvim", "/src/nvim/init.lua", &target_str),
+        )
+        .unwrap();
 
         let current = vec![target_str.clone()];
         let all = vec![target_str.clone()];
@@ -523,7 +554,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let target_str = "/nonexistent/macos/only/path".to_string();
 
-        add_self_managed(dir.path(), make_sm_entry("macos-cfg", "/src/cfg", &target_str)).unwrap();
+        add_self_managed(
+            dir.path(),
+            make_sm_entry("macos-cfg", "/src/cfg", &target_str),
+        )
+        .unwrap();
 
         // Not in current platform, but IS in all-platform unfiltered manifest.
         let current: Vec<String> = vec![];
@@ -546,7 +581,11 @@ mod tests {
 
         std::fs::write(&target, "some config").unwrap();
 
-        add_self_managed(dir.path(), make_sm_entry("other-cfg", "/src/cfg", &target_str)).unwrap();
+        add_self_managed(
+            dir.path(),
+            make_sm_entry("other-cfg", "/src/cfg", &target_str),
+        )
+        .unwrap();
 
         // Not in current platform, but IS in all-platform unfiltered manifest.
         let current: Vec<String> = vec![];
@@ -568,8 +607,11 @@ mod tests {
 
         std::fs::write(&target, "local config").unwrap();
 
-        add_self_managed(dir.path(), make_sm_entry("nvim", "/src/nvim/init.lua", &target_str))
-            .unwrap();
+        add_self_managed(
+            dir.path(),
+            make_sm_entry("nvim", "/src/nvim/init.lua", &target_str),
+        )
+        .unwrap();
 
         let current = vec![target_str.clone()];
         let all = vec![target_str.clone()];

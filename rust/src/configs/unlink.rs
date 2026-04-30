@@ -3,14 +3,16 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
-use dialoguer::Confirm;
+use anyhow::{bail, Result};
 use dialoguer::theme::ColorfulTheme;
+use dialoguer::Confirm;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
-use crate::configs::state::{SelfManagedEntry, detect_state, is_self_managed, load_self_managed, remove_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
+use crate::configs::state::{
+    detect_state, is_self_managed, load_self_managed, remove_self_managed, SelfManagedEntry,
+};
+use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -30,8 +32,7 @@ pub fn run_unlink(
         let filtered = filter_by_name(&all_entries, name);
         if filtered.is_empty() {
             let available: Vec<&str> = {
-                let mut names: Vec<&str> =
-                    all_entries.iter().map(|e| e.name.as_str()).collect();
+                let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
                 names.sort();
                 names.dedup();
                 names
@@ -79,14 +80,10 @@ fn write_unlink(
         let target_display = display_target(&entry.target, home);
 
         match state {
-            EntryState::Linked => {
+            EntryState::Linked | EntryState::LinkedMissingSource => {
                 // Remove the symlink.
                 std::fs::remove_file(&entry.target).map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to remove symlink {}: {}",
-                        entry.target.display(),
-                        e
-                    )
+                    anyhow::anyhow!("Failed to remove symlink {}: {}", entry.target.display(), e)
                 })?;
 
                 // Also remove from self-managed list if present (clean up stale marker).
@@ -103,10 +100,7 @@ fn write_unlink(
                         true
                     } else {
                         Confirm::with_theme(&ColorfulTheme::default())
-                            .with_prompt(format!(
-                                "Restore backup {}?",
-                                bak_path.display()
-                            ))
+                            .with_prompt(format!("Restore backup {}?", bak_path.display()))
                             .default(true)
                             .interact()
                             .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
@@ -165,7 +159,7 @@ fn write_unlink(
                     )?;
                 }
             }
-            EntryState::NotLinked => {
+            EntryState::NotLinked | EntryState::NotLinkedMissingSource => {
                 // Stale self-managed: marker present but file gone — clean up
                 // the marker so the user has visible feedback when invoking
                 // unlink directly (the shell-startup `check` also prunes these,
@@ -206,8 +200,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
+    use crate::configs::state::{add_self_managed, load_self_managed, SelfManagedEntry};
     use crate::configs::Strategy;
-    use crate::configs::state::{SelfManagedEntry, add_self_managed, load_self_managed};
 
     fn fake_home() -> PathBuf {
         PathBuf::from("/home/testuser")
@@ -254,7 +248,10 @@ mod tests {
 
         std::fs::write(&source, "hello").unwrap();
         symlink(&source, &target).unwrap();
-        assert!(target.is_symlink(), "precondition: target should be symlink");
+        assert!(
+            target.is_symlink(),
+            "precondition: target should be symlink"
+        );
 
         let entry = make_entry("test", source.clone(), target.clone());
         let output = capture_unlink(&[entry], &[], dir.path(), true);
@@ -304,7 +301,10 @@ mod tests {
         assert!(!target.is_symlink(), "symlink should have been removed");
         // Backup should have been restored as a regular file.
         assert!(target.exists(), "backup should have been restored");
-        assert!(!target.is_symlink(), "restored file should not be a symlink");
+        assert!(
+            !target.is_symlink(),
+            "restored file should not be a symlink"
+        );
         let content = std::fs::read_to_string(&target).unwrap();
         assert_eq!(content, "original content");
         // .bak should be gone after restore.
@@ -506,9 +506,15 @@ mod tests {
         let output = capture_unlink(&[entry], &[], dir.path(), true);
 
         // Wrong symlink should remain untouched.
-        assert!(target.is_symlink(), "wrong symlink should not have been touched");
+        assert!(
+            target.is_symlink(),
+            "wrong symlink should not have been touched"
+        );
         let dest = std::fs::read_link(&target).unwrap();
-        assert_eq!(dest, other, "symlink should still point to original destination");
+        assert_eq!(
+            dest, other,
+            "symlink should still point to original destination"
+        );
         assert!(output.contains("(not linked, skipping)"));
     }
 }

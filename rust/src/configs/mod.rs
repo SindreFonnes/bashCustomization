@@ -30,6 +30,8 @@ pub(crate) fn home_dir() -> Result<PathBuf> {
 pub enum EntryState {
     /// Symlink at target points to the correct source.
     Linked,
+    /// Symlink at target points to the expected source, but the source is missing.
+    LinkedMissingSource,
     /// User chose to keep their local file (recorded in managed_configs.toml).
     SelfManaged,
     /// Symlink at target points to a different location.
@@ -38,6 +40,8 @@ pub enum EntryState {
     Conflict,
     /// No file exists at the target.
     NotLinked,
+    /// No file exists at the target, and the repo source is also missing.
+    NotLinkedMissingSource,
 }
 
 /// How to resolve a conflict when the target already exists.

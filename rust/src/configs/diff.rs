@@ -3,13 +3,13 @@
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use similar::TextDiff;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{detect_state, load_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
+use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -22,11 +22,7 @@ use crate::configs::{ConfigEntry, EntryState, display_target, format_source, hom
 /// may differ from the repo version. `Linked` entries are symlinks to the
 /// repo source (always identical), and `NotLinked` entries have no local
 /// file to compare.
-pub fn run_diff(
-    project_root: &Path,
-    platform: &Platform,
-    filter_name: Option<&str>,
-) -> Result<()> {
+pub fn run_diff(project_root: &Path, platform: &Platform, filter_name: Option<&str>) -> Result<()> {
     let home_path = home_dir()?;
 
     let all_entries = load_manifest(project_root, platform)?;
@@ -96,10 +92,22 @@ fn write_diff(
                     "  \u{2713} {source_display} \u{2192} {target_display} (symlinked)"
                 )?;
             }
+            EntryState::LinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, dangling symlink)"
+                )?;
+            }
             EntryState::NotLinked => {
                 writeln!(
                     writer,
                     "  - {source_display} \u{2192} {target_display} (not linked, nothing to compare)"
+                )?;
+            }
+            EntryState::NotLinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, nothing to compare)"
                 )?;
             }
         }
@@ -206,8 +214,8 @@ pub(crate) fn print_file_to_stderr(path: &Path, label: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::configs::Strategy;
     use crate::configs::state::SelfManagedEntry;
+    use crate::configs::Strategy;
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
@@ -215,7 +223,11 @@ mod tests {
         std::path::PathBuf::from("/home/testuser")
     }
 
-    fn make_entry(name: &str, source: std::path::PathBuf, target: std::path::PathBuf) -> ConfigEntry {
+    fn make_entry(
+        name: &str,
+        source: std::path::PathBuf,
+        target: std::path::PathBuf,
+    ) -> ConfigEntry {
         ConfigEntry {
             name: name.to_string(),
             source,
@@ -264,8 +276,14 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("-local version"), "should show local as removed: {output}");
-        assert!(output.contains("+repo version"), "should show repo as added: {output}");
+        assert!(
+            output.contains("-local version"),
+            "should show local as removed: {output}"
+        );
+        assert!(
+            output.contains("+repo version"),
+            "should show repo as added: {output}"
+        );
     }
 
     #[test]
@@ -281,7 +299,10 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("identical"), "should note files are identical: {output}");
+        assert!(
+            output.contains("identical"),
+            "should note files are identical: {output}"
+        );
     }
 
     #[test]
@@ -297,7 +318,36 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("symlinked"), "should note it's symlinked: {output}");
+        assert!(
+            output.contains("symlinked"),
+            "should note it's symlinked: {output}"
+        );
+    }
+
+    #[test]
+    fn write_diff_reports_dangling_managed_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.txt");
+        let target = dir.path().join("target.txt");
+        symlink(&source, &target).unwrap();
+
+        let entry = make_entry("test", source, target);
+        let mut buf: Vec<u8> = Vec::new();
+        write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(
+            output.contains("source missing"),
+            "should report missing source: {output}"
+        );
+        assert!(
+            output.contains("dangling symlink"),
+            "should report dangling symlink: {output}"
+        );
+        assert!(
+            !output.contains("symlinked"),
+            "must not report dangling link as healthy: {output}"
+        );
     }
 
     #[test]
@@ -312,7 +362,31 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("not linked"), "should note not linked: {output}");
+        assert!(
+            output.contains("not linked"),
+            "should note not linked: {output}"
+        );
+    }
+
+    #[test]
+    fn write_diff_reports_not_linked_missing_source() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing_source.txt");
+        let target = dir.path().join("missing_target.txt");
+
+        let entry = make_entry("test", source, target);
+        let mut buf: Vec<u8> = Vec::new();
+        write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+
+        assert!(
+            output.contains("source missing"),
+            "should report missing source: {output}"
+        );
+        assert!(
+            !output.contains("not linked, nothing to compare"),
+            "must not report missing-source entries as ordinary not-linked entries: {output}"
+        );
     }
 
     #[test]
@@ -330,7 +404,10 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("not linked"), "should explain per-entry why nothing was compared: {output}");
+        assert!(
+            output.contains("not linked"),
+            "should explain per-entry why nothing was compared: {output}"
+        );
         assert!(
             !output.contains("No differences found."),
             "should NOT print summary when nothing comparable: {output}"
@@ -376,8 +453,14 @@ mod tests {
         write_diff(&mut buf, &[entry], &[], &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("-other version"), "should show wrong-symlink target as removed: {output}");
-        assert!(output.contains("+repo version"), "should show repo as added: {output}");
+        assert!(
+            output.contains("-other version"),
+            "should show wrong-symlink target as removed: {output}"
+        );
+        assert!(
+            output.contains("+repo version"),
+            "should show repo as added: {output}"
+        );
     }
 
     #[test]
@@ -427,7 +510,13 @@ mod tests {
         write_diff(&mut buf, &[entry], &sm, &fake_home()).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
-        assert!(output.contains("-local"), "should show diff for self-managed: {output}");
-        assert!(output.contains("+repo"), "should show diff for self-managed: {output}");
+        assert!(
+            output.contains("-local"),
+            "should show diff for self-managed: {output}"
+        );
+        assert!(
+            output.contains("+repo"),
+            "should show diff for self-managed: {output}"
+        );
     }
 }

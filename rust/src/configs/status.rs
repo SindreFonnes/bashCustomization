@@ -3,12 +3,12 @@
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
-use crate::configs::state::{SelfManagedEntry, detect_state, is_self_managed, load_self_managed};
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
+use crate::configs::state::{detect_state, is_self_managed, load_self_managed, SelfManagedEntry};
+use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -27,8 +27,7 @@ pub fn run_status(
         let filtered = filter_by_name(&all_entries, name);
         if filtered.is_empty() {
             let available: Vec<&str> = {
-                let mut names: Vec<&str> =
-                    all_entries.iter().map(|e| e.name.as_str()).collect();
+                let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
                 names.sort();
                 names.dedup();
                 names
@@ -88,17 +87,12 @@ pub(crate) fn write_status(
 
             let line = match state {
                 EntryState::Linked => {
-                    // A correct symlink can still dangle if the source file
-                    // has been removed (e.g. branch switch, repo cleanup).
-                    // detect_state reports this as Linked, so surface it here
-                    // rather than misreporting a broken link as healthy.
-                    if !entry.source.exists() {
-                        format!(
-                            "  ✗ {source_display} → {target_display} [conflict: source missing; target is a dangling symlink]"
-                        )
-                    } else {
-                        format!("  ✓ {source_display} → {target_display}")
-                    }
+                    format!("  ✓ {source_display} → {target_display}")
+                }
+                EntryState::LinkedMissingSource => {
+                    format!(
+                        "  ✗ {source_display} → {target_display} [conflict: source missing; target is a dangling symlink]"
+                    )
                 }
                 EntryState::SelfManaged => {
                     format!("  ○ {source_display} → {target_display} [self-managed]")
@@ -109,21 +103,10 @@ pub(crate) fn write_status(
                     )
                 }
                 EntryState::Conflict => {
-                    format!(
-                        "  ✗ {source_display} → {target_display} [conflict: local file exists]"
-                    )
+                    format!("  ✗ {source_display} → {target_display} [conflict: local file exists]")
                 }
-                EntryState::NotLinked if !entry.source.exists() => {
-                    // Source missing AND target absent. detect_state still
-                    // returns NotLinked, but reporting "[not linked]" would
-                    // be misleading: `bashc configs link` bails on missing
-                    // sources and `bashc configs check` already surfaces
-                    // this as drift ("missing source"). Surface the same
-                    // diagnosis here so `status` does not contradict the
-                    // other commands.
-                    format!(
-                        "  ✗ {source_display} → {target_display} [conflict: source missing]"
-                    )
+                EntryState::NotLinkedMissingSource => {
+                    format!("  ✗ {source_display} → {target_display} [conflict: source missing]")
                 }
                 EntryState::NotLinked if stale_sm => {
                     format!(
@@ -153,8 +136,8 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::tempdir;
 
-    use crate::configs::Strategy;
     use crate::configs::state::SelfManagedEntry;
+    use crate::configs::Strategy;
 
     const FAKE_HOME: &str = "/home/testuser";
 
@@ -222,10 +205,7 @@ mod tests {
 
     // ── write_status output ───────────────────────────────────────────────────
 
-    fn capture_status(
-        entries: &[ConfigEntry],
-        self_managed: &[SelfManagedEntry],
-    ) -> String {
+    fn capture_status(entries: &[ConfigEntry], self_managed: &[SelfManagedEntry]) -> String {
         let home = fake_home();
         let mut buf: Vec<u8> = Vec::new();
         write_status(&mut buf, entries, self_managed, &home).expect("write_status failed");
@@ -240,16 +220,15 @@ mod tests {
         std::fs::write(&source, "# content").unwrap();
         symlink(&source, &target).unwrap();
 
-        let entry = make_entry(
-            "claude",
-            source,
-            target,
-        );
+        let entry = make_entry("claude", source, target);
 
         let output = capture_status(&[entry], &[]);
         assert!(output.contains("claude:"), "missing group header");
         assert!(output.contains("✓"), "missing check mark for linked state");
-        assert!(!output.contains("[not linked]"), "should not show not-linked");
+        assert!(
+            !output.contains("[not linked]"),
+            "should not show not-linked"
+        );
     }
 
     #[test]
@@ -324,9 +303,7 @@ mod tests {
     #[test]
     fn dangling_symlink_shows_conflict() {
         // Symlink whose stored destination still equals entry.source, but
-        // the source file has been deleted. detect_state returns Linked, so
-        // write_status must cross-check source.exists() to avoid misreporting
-        // the broken link as healthy.
+        // the source file has been deleted.
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.kdl");
         let target = dir.path().join("target.kdl");
@@ -340,7 +317,10 @@ mod tests {
         let entry = make_entry("zellij", source, target);
 
         let output = capture_status(&[entry], &[]);
-        assert!(output.contains("✗"), "should use cross glyph, got: {output:?}");
+        assert!(
+            output.contains("✗"),
+            "should use cross glyph, got: {output:?}"
+        );
         assert!(
             output.contains("dangling symlink"),
             "should mention dangling symlink, got: {output:?}"
@@ -353,11 +333,8 @@ mod tests {
 
     #[test]
     fn not_linked_with_missing_source_shows_conflict() {
-        // Source missing AND target absent: detect_state returns NotLinked,
-        // but reporting "[not linked]" would contradict `bashc configs link`
-        // (which bails on missing sources) and `bashc configs check`
-        // (which surfaces this as drift "missing source"). status should
-        // produce the same drift diagnosis instead.
+        // Source missing AND target absent should use the same drift diagnosis
+        // as `bashc configs check`, not the ordinary "[not linked]" status.
         let dir = tempdir().unwrap();
         let source = dir.path().join("missing_source.kdl");
         let target = dir.path().join("missing_target.kdl");
@@ -366,7 +343,10 @@ mod tests {
         let entry = make_entry("zellij", source, target);
 
         let output = capture_status(&[entry], &[]);
-        assert!(output.contains("✗"), "should use cross glyph, got: {output:?}");
+        assert!(
+            output.contains("✗"),
+            "should use cross glyph, got: {output:?}"
+        );
         assert!(
             output.contains("source missing"),
             "should mention missing source, got: {output:?}"
@@ -410,10 +390,7 @@ mod tests {
         let t2 = dir.path().join("t2");
         std::fs::write(&s2, "").unwrap();
 
-        let entries = vec![
-            make_entry("claude", s1, t1),
-            make_entry("zellij", s2, t2),
-        ];
+        let entries = vec![make_entry("claude", s1, t1), make_entry("zellij", s2, t2)];
 
         let output = capture_status(&entries, &[]);
 
@@ -439,8 +416,8 @@ mod tests {
         symlink(&s2, &t2).unwrap(); // second one linked
 
         let entries = vec![
-            make_entry("claude", s1, t1),        // not linked
-            make_entry("claude", s2, t2),        // linked
+            make_entry("claude", s1, t1), // not linked
+            make_entry("claude", s2, t2), // linked
         ];
 
         let output = capture_status(&entries, &[]);

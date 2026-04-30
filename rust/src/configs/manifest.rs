@@ -59,11 +59,7 @@ pub fn load_manifest_unfiltered(project_root: &Path) -> Result<Vec<ConfigEntry>>
 
 /// Return entries matching the given name (cloned).
 pub fn filter_by_name(entries: &[ConfigEntry], name: &str) -> Vec<ConfigEntry> {
-    entries
-        .iter()
-        .filter(|e| e.name == name)
-        .cloned()
-        .collect()
+    entries.iter().filter(|e| e.name == name).cloned().collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -102,8 +98,7 @@ fn parse_manifest_entries(
     home: &str,
     platform_filter: Option<&Platform>,
 ) -> Result<Vec<ConfigEntry>> {
-    let raw: RawManifest =
-        toml::from_str(content).context("Failed to parse manifest.toml")?;
+    let raw: RawManifest = toml::from_str(content).context("Failed to parse manifest.toml")?;
 
     let configs_dir = project_root.join("configs");
     let mut entries = Vec::new();
@@ -184,15 +179,24 @@ mod tests {
     const FAKE_HOME: &str = "/home/testuser";
 
     fn mac_platform() -> Platform {
-        Platform { os: Os::MacOs, arch: Arch::Aarch64 }
+        Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        }
     }
 
     fn linux_platform() -> Platform {
-        Platform { os: Os::Linux(Distro::Ubuntu), arch: Arch::X86_64 }
+        Platform {
+            os: Os::Linux(Distro::Ubuntu),
+            arch: Arch::X86_64,
+        }
     }
 
     fn wsl_platform() -> Platform {
-        Platform { os: Os::Wsl(Distro::Ubuntu), arch: Arch::X86_64 }
+        Platform {
+            os: Os::Wsl(Distro::Ubuntu),
+            arch: Arch::X86_64,
+        }
     }
 
     /// A project root that won't have real files — used for path-resolution tests.
@@ -217,9 +221,8 @@ name = "zellij"
 source = "zellij/config.kdl"
 target = "~/.config/zellij/config.kdl"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].name, "claude");
         assert_eq!(entries[1].name, "zellij");
@@ -233,9 +236,8 @@ name = "claude"
 source = "claude/CLAUDE.md"
 target = "~/.claude/CLAUDE.md"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries[0].strategy, Strategy::Prompt);
     }
 
@@ -248,9 +250,8 @@ source = "claude/CLAUDE.md"
 target = "~/.claude/CLAUDE.md"
 strategy = "replace"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries[0].strategy, Strategy::Replace);
     }
 
@@ -267,9 +268,8 @@ source = "any/config"
 target = "~/.any"
 "#;
         for platform in [mac_platform(), linux_platform(), wsl_platform()] {
-            let entries =
-                load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
-                    .expect("should parse");
+            let entries = load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
+                .expect("should parse");
             assert_eq!(entries.len(), 1, "should include entry for every platform");
         }
     }
@@ -283,10 +283,12 @@ source = "ghostty/config"
 target = "~/Library/Application Support/com.mitchellh.ghostty/config"
 platform = "macos"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &linux_platform(), FAKE_HOME)
-                .expect("should parse");
-        assert!(entries.is_empty(), "macos entry should be filtered on Linux");
+        let entries = load_manifest_from_str(toml, &fake_root(), &linux_platform(), FAKE_HOME)
+            .expect("should parse");
+        assert!(
+            entries.is_empty(),
+            "macos entry should be filtered on Linux"
+        );
     }
 
     #[test]
@@ -298,9 +300,8 @@ source = "ghostty/config"
 target = "~/Library/Application Support/com.mitchellh.ghostty/config"
 platform = "macos"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries.len(), 1);
     }
 
@@ -313,9 +314,8 @@ source = "linux/config"
 target = "~/.config/linux-thing"
 platform = "linux"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &linux_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &linux_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries.len(), 1);
     }
 
@@ -328,9 +328,8 @@ source = "linux/config"
 target = "~/.config/linux-thing"
 platform = "linux"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &wsl_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &wsl_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(
             entries.len(),
             1,
@@ -351,9 +350,8 @@ target = "~/.typo"
 platform = "macosX"
 "#;
         for platform in [mac_platform(), linux_platform(), wsl_platform()] {
-            let entries =
-                load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
-                    .expect("should parse");
+            let entries = load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
+                .expect("should parse");
             assert!(
                 entries.is_empty(),
                 "unknown platform filter should be filtered out, got: {entries:?}"
@@ -370,10 +368,12 @@ source = "linux/config"
 target = "~/.config/linux-thing"
 platform = "linux"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
-        assert!(entries.is_empty(), "linux entry should be filtered on macOS");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
+        assert!(
+            entries.is_empty(),
+            "linux entry should be filtered on macOS"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -388,9 +388,8 @@ name = "claude"
 source = "claude/CLAUDE.md"
 target = "~/.claude/CLAUDE.md"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(
             entries[0].target,
             PathBuf::from("/home/testuser/.claude/CLAUDE.md")
@@ -405,9 +404,8 @@ name = "home"
 source = "home/something"
 target = "~"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries[0].target, PathBuf::from(FAKE_HOME));
     }
 
@@ -419,9 +417,8 @@ name = "absolute"
 source = "some/config"
 target = "/etc/myconfig"
 "#;
-        let entries =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         assert_eq!(entries[0].target, PathBuf::from("/etc/myconfig"));
     }
 
@@ -435,8 +432,7 @@ target = "~/.claude/CLAUDE.md"
 "#;
         let root = PathBuf::from("/my/project");
         let entries =
-            load_manifest_from_str(toml, &root, &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+            load_manifest_from_str(toml, &root, &mac_platform(), FAKE_HOME).expect("should parse");
         assert_eq!(
             entries[0].source,
             PathBuf::from("/my/project/configs/claude/CLAUDE.md")
@@ -465,9 +461,8 @@ name = "zellij"
 source = "zellij/config.kdl"
 target = "~/.config/zellij/config.kdl"
 "#;
-        let all =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let all = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
 
         let claude = filter_by_name(&all, "claude");
         assert_eq!(claude.len(), 2);
@@ -488,9 +483,8 @@ name = "claude"
 source = "claude/CLAUDE.md"
 target = "~/.claude/CLAUDE.md"
 "#;
-        let all =
-            load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
-                .expect("should parse");
+        let all = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("should parse");
         // filter_by_name should return independent clones
         let filtered = filter_by_name(&all, "claude");
         assert_eq!(filtered.len(), 1);
@@ -523,8 +517,7 @@ source = "universal/config"
 target = "~/.config/universal"
 "#;
         let entries =
-            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME)
-                .expect("should parse");
+            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME).expect("should parse");
         assert_eq!(
             entries.len(),
             3,
@@ -545,8 +538,7 @@ source = "foo/config"
 target = "~/.foo"
 "#;
         let entries =
-            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME)
-                .expect("should parse");
+            load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME).expect("should parse");
         assert_eq!(
             entries[0].target,
             PathBuf::from("/home/testuser/.foo"),
@@ -564,8 +556,7 @@ target = "~/.claude/CLAUDE.md"
 "#;
         let root = PathBuf::from("/fake/project");
         let entries =
-            load_manifest_from_str_unfiltered(toml, &root, FAKE_HOME)
-                .expect("should parse");
+            load_manifest_from_str_unfiltered(toml, &root, FAKE_HOME).expect("should parse");
         assert_eq!(
             entries[0].source,
             PathBuf::from("/fake/project/configs/claude/CLAUDE.md"),
