@@ -61,3 +61,4 @@ if [[ $IS_WSL == "true" ]]; then
 fi
 
 alias cb="output_to_clipboad";
+alias clip="output_to_clipboad";

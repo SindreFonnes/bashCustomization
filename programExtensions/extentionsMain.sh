@@ -13,7 +13,6 @@ load_extentions () {
         "python" \
         "bun" \
         "man" \
-        "xclip" \
     )
 
     for i in "${program_extentions[@]}"
