@@ -118,8 +118,8 @@ verify_checksum() {
     elif command -v shasum >/dev/null 2>&1; then
         actual=$(shasum -a 256 "$file" | cut -d' ' -f1)
     else
-        echo "Warning: No sha256sum or shasum found — skipping checksum verification" >&2
-        return 0
+        echo "Error: No sha256sum or shasum found — cannot verify bashc" >&2
+        return 1
     fi
 
     if [ "$actual" != "$expected" ]; then
@@ -137,6 +137,16 @@ verify_checksum() {
 OS=$(detect_os)
 ARCH=$(detect_arch)
 TARGET="${ARCH}-${OS}"
+
+case "$TARGET" in
+    x86_64-apple-darwin|aarch64-apple-darwin|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-unknown-linux-musl)
+        ;;
+    *)
+        echo "Error: No bashc release artifact is produced for ${TARGET}" >&2
+        echo "Supported release targets: x86_64/aarch64 macOS, x86_64/aarch64 glibc Linux, x86_64 Alpine" >&2
+        exit 1
+        ;;
+esac
 
 echo "Detected platform: ${TARGET}"
 
@@ -162,6 +172,7 @@ SHA_URL="${RELEASE_URL}.sha256"
 TMPDIR=$(mktemp -d)
 BINARY_PATH="${TMPDIR}/${BINARY_NAME}"
 SHA_PATH="${TMPDIR}/${BINARY_NAME}.sha256"
+trap 'rm -rf "$TMPDIR"' EXIT HUP INT TERM
 
 echo "Downloading ${BINARY_NAME} for ${TARGET}..."
 curl -fsSL -o "$BINARY_PATH" "$RELEASE_URL"
@@ -175,19 +186,67 @@ verify_checksum "$BINARY_PATH" "$EXPECTED_HASH"
 
 chmod +x "$BINARY_PATH"
 
+# Persist the verified binary before running it. The shell framework already
+# adds ~/.mybin to PATH, and BASHC_INSTALL_DIR allows an explicit override.
+INSTALL_DIR=${BASHC_INSTALL_DIR:-"$HOME/.mybin"}
+PERSISTENT_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
+mkdir -p "$INSTALL_DIR"
+cp "$BINARY_PATH" "$PERSISTENT_BINARY"
+chmod 755 "$PERSISTENT_BINARY"
+echo "Installed ${BINARY_NAME} to ${PERSISTENT_BINARY}"
+
+setup_repository_and_shells() {
+    project_root=${BASHC_ROOT:-"$HOME/bashCustomization"}
+
+    if [ ! -d "$project_root" ]; then
+        if ! command -v git >/dev/null 2>&1; then
+            echo "Error: git is required to clone bashCustomization after tool setup" >&2
+            return 1
+        fi
+        echo "Cloning bashCustomization to ${project_root}..."
+        git clone "https://github.com/${REPO}.git" "$project_root"
+    elif [ ! -f "$project_root/main.sh" ]; then
+        echo "Error: ${project_root} exists but does not contain main.sh" >&2
+        return 1
+    fi
+
+    add_startup_hook "$HOME/.bashrc" "$project_root"
+    add_startup_hook "$HOME/.zshrc" "$project_root"
+
+    echo "Shell startup configured for Bash and Zsh."
+    echo "Start a new shell or source ${project_root}/main.sh to load the framework."
+}
+
+add_startup_hook() {
+    startup_file=$1
+    project_root=$2
+
+    if [ -f "$startup_file" ] && \
+       grep -F "export BASHC_ROOT=\"$project_root\"" "$startup_file" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    {
+        printf '\n# bashCustomization\n'
+        printf 'export BASHC_ROOT="%s"\n' "$project_root"
+        # These variables must be expanded by the user's future shell.
+        # shellcheck disable=SC2016
+        printf 'if [ -f "$BASHC_ROOT/main.sh" ]; then\n'
+        # shellcheck disable=SC2016
+        printf '    . "$BASHC_ROOT/main.sh"\n'
+        printf 'fi\n'
+    } >> "$startup_file"
+}
+
 # Run bashc with provided arguments, or default to "install all"
 if [ $# -eq 0 ]; then
     echo "Running: ${BINARY_NAME} install all"
-    "$BINARY_PATH" install all
+    "$PERSISTENT_BINARY" install all
+    setup_repository_and_shells
 else
     echo "Running: ${BINARY_NAME} $*"
-    "$BINARY_PATH" "$@"
+    "$PERSISTENT_BINARY" "$@"
 fi
 
 echo ""
-echo "Done. To install bashc permanently, re-run with:"
-echo "  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/init.sh | sh -s -- install bashc"
-echo "Or download the binary directly from https://github.com/${REPO}/releases"
-
-# Clean up
-rm -rf "$TMPDIR"
+echo "Done. bashc is installed at ${PERSISTENT_BINARY}."

@@ -61,10 +61,7 @@ fn install_nvm() -> Result<()> {
     println!("Installing nvm...");
     let install_url =
         format!("https://raw.githubusercontent.com/nvm-sh/nvm/{NVM_INSTALL_VERSION}/install.sh");
-    command::run_visible(
-        "bash",
-        &["-c", &format!("curl -fsSL {install_url} | bash")],
-    )?;
+    command::run_visible("bash", &["-c", &format!("curl -fsSL {install_url} | bash")])?;
 
     // Source nvm and install latest LTS node
     println!("Installing latest Node.js LTS via nvm...");

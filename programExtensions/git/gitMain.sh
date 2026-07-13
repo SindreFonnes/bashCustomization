@@ -4,6 +4,6 @@ else
     export GIT_EXTENTION_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
 fi
 
-source "$GIT_EXTENTION_FOLDER_LOCATION/gitAliases.sh";
-source "$GIT_EXTENTION_FOLDER_LOCATION/gitFunctions.sh";
-source "$GIT_EXTENTION_FOLDER_LOCATION/ilyaFunctions.sh";
+_bashc_source_file "$GIT_EXTENTION_FOLDER_LOCATION/gitAliases.sh" || return 1
+_bashc_source_file "$GIT_EXTENTION_FOLDER_LOCATION/gitFunctions.sh" || return 1
+_bashc_source_file "$GIT_EXTENTION_FOLDER_LOCATION/ilyaFunctions.sh" || return 1

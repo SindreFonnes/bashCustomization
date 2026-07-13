@@ -1,4 +1,4 @@
-source "$SHELL_EXTENTION_FOLDER_LOCATION/shellFunctions.sh";
+_bashc_source_file "$SHELL_EXTENTION_FOLDER_LOCATION/shellFunctions.sh" || return 1
 
 git_commit () {
 	local inputs=($@);

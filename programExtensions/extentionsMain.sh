@@ -15,11 +15,11 @@ load_extentions () {
         "man" \
     )
 
-    for i in "${program_extentions[@]}"
+	for i in "${program_extentions[@]}"
 	do
-		source "$extentions_location/$i/${i}Main.sh";
-        alias my${i}show="$extentions_location/$i/${i}Show.sh";
-        alias my${i}code="code $extentions_location/$i";
+		_bashc_source_file "$extentions_location/$i/${i}Main.sh" || return 1
+		alias my${i}show="$extentions_location/$i/${i}Show.sh";
+		alias my${i}code="code $extentions_location/$i";
 	done
 }
 

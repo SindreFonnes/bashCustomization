@@ -3,16 +3,16 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
-use dialoguer::theme::ColorfulTheme;
+use anyhow::{Result, bail};
 use dialoguer::Select;
+use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{
-    add_self_managed, detect_state, load_self_managed, remove_self_managed, SelfManagedEntry,
+    SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
 };
-use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState, Strategy};
+use crate::configs::{ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -89,6 +89,18 @@ fn write_link(
         let source_display = format_source(entry);
         let target_display = display_target(&entry.target, home);
 
+        // Source viability is a hard precondition for every linking strategy.
+        // In particular, a regular target is classified as Conflict even when
+        // the source is missing; checking here prevents force-replace/discard
+        // from removing user data only to create a dangling link.
+        if !entry.source.exists() {
+            writeln!(
+                writer,
+                "  \u{2717} {source_display} \u{2192} {target_display} (source missing, cannot link)"
+            )?;
+            continue;
+        }
+
         match state {
             EntryState::Linked => {
                 writeln!(
@@ -156,7 +168,7 @@ fn write_link(
                                     resolve_replace_backup(writer, entry, home)?;
                                 }
                                 Strategy::Discard => {
-                                    resolve_discard(writer, entry, home, &state)?;
+                                    resolve_discard(writer, entry, home)?;
                                 }
                                 Strategy::Keep => {
                                     if matches!(state, EntryState::Conflict) {
@@ -188,7 +200,7 @@ fn write_link(
                         resolve_replace_backup(writer, entry, home)?;
                     }
                     Strategy::Discard => {
-                        resolve_discard(writer, entry, home, &state)?;
+                        resolve_discard(writer, entry, home)?;
                     }
                     Strategy::Keep => {
                         if matches!(state, EntryState::Conflict) {
@@ -243,30 +255,71 @@ pub(crate) fn create_symlink(entry: &ConfigEntry) -> Result<()> {
 
 /// Replace target with a symlink, backing up the original as `.bak`.
 fn resolve_replace_backup(writer: &mut impl Write, entry: &ConfigEntry, home: &Path) -> Result<()> {
+    resolve_replace_backup_with(writer, entry, home, create_symlink)
+}
+
+fn resolve_replace_backup_with(
+    writer: &mut impl Write,
+    entry: &ConfigEntry,
+    home: &Path,
+    link: impl FnOnce(&ConfigEntry) -> Result<()>,
+) -> Result<()> {
     let source_display = format_source(entry);
     let target_display = display_target(&entry.target, home);
     let bak_path = PathBuf::from(format!("{}.bak", entry.target.display()));
+    let staging = create_staging_dir(&entry.target)?;
+    let previous_backup = staging.path().join("previous-backup");
+    let had_previous_backup = bak_path.exists() || bak_path.symlink_metadata().is_ok();
 
-    if bak_path.exists() || bak_path.symlink_metadata().is_ok() {
+    if had_previous_backup {
         writeln!(
             writer,
             "  \u{26A0} Overwriting existing backup {}",
             bak_path.display()
         )?;
-        // Remove existing .bak (could be file, dir, or symlink)
-        remove_target(&bak_path)?;
+        std::fs::rename(&bak_path, &previous_backup).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to stage existing backup {} at {}: {}",
+                bak_path.display(),
+                previous_backup.display(),
+                e
+            )
+        })?;
     }
 
-    std::fs::rename(&entry.target, &bak_path).map_err(|e| {
-        anyhow::anyhow!(
+    if let Err(e) = std::fs::rename(&entry.target, &bak_path) {
+        if had_previous_backup {
+            let _ = std::fs::rename(&previous_backup, &bak_path);
+        }
+        return Err(anyhow::anyhow!(
             "Failed to rename {} to {}: {}",
             entry.target.display(),
             bak_path.display(),
             e
-        )
-    })?;
+        ));
+    }
 
-    create_symlink(entry)?;
+    if let Err(link_error) = link(entry) {
+        let target_restore = std::fs::rename(&bak_path, &entry.target);
+        let backup_restore = if had_previous_backup {
+            std::fs::rename(&previous_backup, &bak_path)
+        } else {
+            Ok(())
+        };
+
+        return match (target_restore, backup_restore) {
+            (Ok(()), Ok(())) => Err(link_error.context("link creation failed; original restored")),
+            (target_result, backup_result) => Err(anyhow::anyhow!(
+                "Link creation failed: {link_error:#}. Rollback was incomplete: target restore: {}; previous backup restore: {}",
+                format_rollback_result(target_result),
+                format_rollback_result(backup_result)
+            )),
+        };
+    }
+
+    staging.close().map_err(|e| {
+        anyhow::anyhow!("Linked successfully but failed to remove staged backup: {e}")
+    })?;
 
     writeln!(
         writer,
@@ -277,28 +330,44 @@ fn resolve_replace_backup(writer: &mut impl Write, entry: &ConfigEntry, home: &P
 }
 
 /// Replace target with a symlink, discarding the original.
-fn resolve_discard(
+fn resolve_discard(writer: &mut impl Write, entry: &ConfigEntry, home: &Path) -> Result<()> {
+    resolve_discard_with(writer, entry, home, create_symlink)
+}
+
+fn resolve_discard_with(
     writer: &mut impl Write,
     entry: &ConfigEntry,
     home: &Path,
-    state: &EntryState,
+    link: impl FnOnce(&ConfigEntry) -> Result<()>,
 ) -> Result<()> {
     let source_display = format_source(entry);
     let target_display = display_target(&entry.target, home);
+    let staging = create_staging_dir(&entry.target)?;
+    let staged_target = staging.path().join("original-target");
 
-    match state {
-        EntryState::WrongSymlink => {
-            // Remove the symlink itself (not its target)
-            std::fs::remove_file(&entry.target).map_err(|e| {
-                anyhow::anyhow!("Failed to remove symlink {}: {}", entry.target.display(), e)
-            })?;
-        }
-        _ => {
-            remove_target(&entry.target)?;
-        }
+    std::fs::rename(&entry.target, &staged_target).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to stage {} at {} before replacement: {}",
+            entry.target.display(),
+            staged_target.display(),
+            e
+        )
+    })?;
+
+    if let Err(link_error) = link(entry) {
+        return match std::fs::rename(&staged_target, &entry.target) {
+            Ok(()) => Err(link_error.context("link creation failed; original restored")),
+            Err(restore_error) => Err(anyhow::anyhow!(
+                "Link creation failed: {link_error:#}. Original remains at {} because rollback failed: {}",
+                staged_target.display(),
+                restore_error
+            )),
+        };
     }
 
-    create_symlink(entry)?;
+    staging.close().map_err(|e| {
+        anyhow::anyhow!("Linked successfully but failed to discard staged target: {e}")
+    })?;
 
     writeln!(
         writer,
@@ -306,6 +375,30 @@ fn resolve_discard(
     )?;
 
     Ok(())
+}
+
+fn create_staging_dir(target: &Path) -> Result<tempfile::TempDir> {
+    let parent = target.parent().ok_or_else(|| {
+        anyhow::anyhow!("Cannot stage target without a parent: {}", target.display())
+    })?;
+
+    tempfile::Builder::new()
+        .prefix(".bashc-link-")
+        .tempdir_in(parent)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create replacement staging directory in {}: {}",
+                parent.display(),
+                e
+            )
+        })
+}
+
+fn format_rollback_result(result: std::io::Result<()>) -> String {
+    match result {
+        Ok(()) => "ok".to_string(),
+        Err(e) => e.to_string(),
+    }
 }
 
 /// Mark the entry as self-managed; leave the local file in place.
@@ -331,22 +424,6 @@ fn resolve_keep(
         writer,
         "  \u{25CB} {source_display} \u{2192} {target_display} (kept \u{2014} marked self-managed)"
     )?;
-
-    Ok(())
-}
-
-/// Remove a filesystem target (file, directory, or symlink).
-fn remove_target(path: &Path) -> Result<()> {
-    let meta = std::fs::symlink_metadata(path)
-        .map_err(|e| anyhow::anyhow!("Failed to read metadata for {}: {}", path.display(), e))?;
-
-    if meta.file_type().is_symlink() || meta.file_type().is_file() {
-        std::fs::remove_file(path)
-            .map_err(|e| anyhow::anyhow!("Failed to remove {}: {}", path.display(), e))?;
-    } else if meta.file_type().is_dir() {
-        std::fs::remove_dir_all(path)
-            .map_err(|e| anyhow::anyhow!("Failed to remove directory {}: {}", path.display(), e))?;
-    }
 
     Ok(())
 }
@@ -445,8 +522,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
-    use crate::configs::state::SelfManagedEntry;
     use crate::configs::Strategy;
+    use crate::configs::state::SelfManagedEntry;
 
     fn fake_home() -> PathBuf {
         PathBuf::from("/home/testuser")
@@ -652,6 +729,80 @@ mod tests {
             msg.contains("Source file(s) not found"),
             "error should mention missing source"
         );
+    }
+
+    #[test]
+    fn force_discard_preserves_conflict_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing-source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
+        assert!(output.contains("source missing, cannot link"));
+    }
+
+    #[test]
+    fn force_replace_preserves_conflict_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing-source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
+        assert!(!PathBuf::from(format!("{}.bak", target.display())).exists());
+        assert!(output.contains("source missing, cannot link"));
+    }
+
+    #[test]
+    fn replace_rolls_back_target_and_previous_backup_when_link_creation_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+        std::fs::write(&backup, "older backup").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_replace_backup_with(&mut output, &entry, &fake_home(), |_| {
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link failure should be returned");
+
+        assert!(error.to_string().contains("original restored"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "older backup");
+        assert!(!target.is_symlink());
+    }
+
+    #[test]
+    fn discard_rolls_back_original_when_link_creation_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_discard_with(&mut output, &entry, &fake_home(), |_| {
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link failure should be returned");
+
+        assert!(error.to_string().contains("original restored"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
     }
 
     // ── Test 6: Conflict entry is skipped with message (non-interactive) ─────

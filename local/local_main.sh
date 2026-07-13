@@ -32,11 +32,11 @@ if ! [ -f "$local_dir/local_variables.sh" ]; then
     chmod 600 "$local_dir/local_variables.sh";
 fi
 
-. "$local_dir/local_variables.sh"
+_bashc_source_file "$local_dir/local_variables.sh" || return 1
 
 if ! [ -f "$local_dir/local_aliases.sh" ]; then
     touch "$local_dir/local_aliases.sh";
     chmod 600 "$local_dir/local_aliases.sh";
 fi
 
-. "$local_dir/local_aliases.sh"
+_bashc_source_file "$local_dir/local_aliases.sh" || return 1

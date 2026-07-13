@@ -1,6 +1,4 @@
-use bashc_e2e::assertions::{
-    assert_exit_ok, assert_stdout_contains, assert_stdout_not_contains,
-};
+use bashc_e2e::assertions::{assert_exit_ok, assert_stdout_contains, assert_stdout_not_contains};
 
 use crate::setup;
 

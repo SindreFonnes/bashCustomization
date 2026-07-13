@@ -19,6 +19,10 @@ impl crate::install::Installer for BrewInstaller {
         package_manager::has_brew()
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
             println!("  Would install Homebrew");

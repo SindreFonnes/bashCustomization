@@ -1,42 +1,59 @@
 # My bash customization
 ## Bash customization home
-export bashC="$HOME/bashCustomization";
+export bashC="${BASHC_ROOT:-$HOME/bashCustomization}";
+export BASHC_ROOT="$bashC"
 local_dir="$bashC/local";
 
-. "$bashC/general_functions.sh";
+if ! . "$bashC/general_functions.sh"; then
+    printf 'bashc: failed to load core shell functions\n' >&2
+    return 1
+fi
 
-determine_running_os;
+determine_running_os || return 1
 
 # Checks for shell version and saves it in system variable.
-determine_running_shell;
+determine_running_shell || return 1
 
 ## Loading extending files
-load_shell_extentionfiles "first_load";
+if ! load_shell_extentionfiles "first_load"; then
+    printf 'bashc: shell customization failed to load\n' >&2
+    return 1
+fi
 
 # Fetch updates once per day, then reload if something changed
 check_for_shell_update_once_a_day () {
-    local current_date_number
-    current_date_number=$(date +%u)
-    local path_to_shell_update="$bashC/.last_day_shell_update_checked"
-
-    if [[ ! -f "$path_to_shell_update" ]]; then
-        echo "$current_date_number" > "$path_to_shell_update"
-        updateShell
-        load_shell_extentionfiles
+    if [[ -n ${BASHC_SKIP_UPDATE_CHECK:-} ]]; then
         return 0
     fi
 
-    local last_day_shell_checked
-    last_day_shell_checked=$(cat "$path_to_shell_update")
+    local current_date
+    current_date=$(date +%F) || return 1
+    local path_to_shell_update="${BASHC_UPDATE_STATE_FILE:-$bashC/.last_day_shell_update_checked}"
+    local last_date_shell_checked=""
 
-    if [[ "$current_date_number" != "$last_day_shell_checked" ]]; then
-        echo "$current_date_number" > "$path_to_shell_update"
-        updateShell
-        load_shell_extentionfiles
+    if [[ -f "$path_to_shell_update" ]]; then
+        last_date_shell_checked=$(<"$path_to_shell_update")
+    fi
+
+    if [[ "$current_date" == "$last_date_shell_checked" ]]; then
         return 0
     fi
+
+    if ! git_pull_repo "$bashC"; then
+        printf 'bashc: daily shell update failed; will retry next shell start\n' >&2
+        return 1
+    fi
+
+    if ! load_shell_extentionfiles; then
+        printf 'bashc: updated files could not be reloaded; will retry next shell start\n' >&2
+        return 1
+    fi
+
+    printf '%s\n' "$current_date" > "$path_to_shell_update"
 }
 
-check_for_shell_update_once_a_day
+if ! check_for_shell_update_once_a_day; then
+    return 1
+fi
 
 bashc_check_configs

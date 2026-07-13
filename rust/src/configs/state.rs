@@ -1,6 +1,11 @@
 // state: tracks which configs are currently linked
 
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -26,6 +31,67 @@ fn managed_configs_path(project_root: &Path) -> PathBuf {
     project_root.join("local").join("managed_configs.toml")
 }
 
+fn managed_configs_lock_path(project_root: &Path) -> PathBuf {
+    project_root.join("local").join(".managed_configs.lock")
+}
+
+/// Advisory process lock for read-modify-write operations on managed config
+/// state. The kernel releases the lock if a process exits unexpectedly.
+struct StateLock {
+    file: File,
+}
+
+impl StateLock {
+    fn acquire(project_root: &Path) -> Result<Self> {
+        let lock_path = managed_configs_lock_path(project_root);
+        if let Some(parent) = lock_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating directory {}", parent.display()))?;
+        }
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .with_context(|| format!("opening state lock {}", lock_path.display()))?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        loop {
+            // SAFETY: `file` owns a valid file descriptor for this scope.
+            let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+            if result == 0 {
+                return Ok(Self { file });
+            }
+
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::WouldBlock {
+                return Err(error)
+                    .with_context(|| format!("locking state file {}", lock_path.display()));
+            }
+            if Instant::now() >= deadline {
+                anyhow::bail!(
+                    "Timed out waiting for config state lock {}; another bashc process may still be running",
+                    lock_path.display()
+                );
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+impl Drop for StateLock {
+    fn drop(&mut self) {
+        // SAFETY: `self.file` remains valid until after `drop` returns. Closing
+        // the descriptor would also release the lock; the explicit unlock
+        // keeps the lifetime obvious.
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
 /// Load self-managed entries from `<project_root>/local/managed_configs.toml`.
 /// Returns an empty Vec if the file does not exist.
 pub(crate) fn load_self_managed(project_root: &Path) -> Result<Vec<SelfManagedEntry>> {
@@ -43,6 +109,7 @@ pub(crate) fn load_self_managed(project_root: &Path) -> Result<Vec<SelfManagedEn
 /// Add an entry to `local/managed_configs.toml`.
 /// Does nothing if an entry with the same target already exists.
 pub(crate) fn add_self_managed(project_root: &Path, entry: SelfManagedEntry) -> Result<()> {
+    let _lock = StateLock::acquire(project_root)?;
     let path = managed_configs_path(project_root);
     let mut file = if path.exists() {
         let contents = std::fs::read_to_string(&path)
@@ -65,14 +132,13 @@ pub(crate) fn add_self_managed(project_root: &Path, entry: SelfManagedEntry) -> 
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
 
-    let serialized = toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-    std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    save_self_managed_unlocked(project_root, &file.self_managed)
 }
 
 /// Remove the entry matching `target` from `local/managed_configs.toml`.
 /// If the file becomes empty, it is deleted.
 pub(crate) fn remove_self_managed(project_root: &Path, target: &str) -> Result<()> {
+    let _lock = StateLock::acquire(project_root)?;
     let path = managed_configs_path(project_root);
     if !path.exists() {
         return Ok(());
@@ -85,14 +151,7 @@ pub(crate) fn remove_self_managed(project_root: &Path, target: &str) -> Result<(
 
     file.self_managed.retain(|e| e.target != target);
 
-    if file.self_managed.is_empty() {
-        std::fs::remove_file(&path).with_context(|| format!("deleting {}", path.display()))?;
-    } else {
-        let serialized =
-            toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-        std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
-    }
-    Ok(())
+    save_self_managed_unlocked(project_root, &file.self_managed)
 }
 
 /// Returns `true` if any entry's target matches the given path (compared as strings).
@@ -103,7 +162,7 @@ pub(crate) fn is_self_managed(entries: &[SelfManagedEntry], target: &Path) -> bo
 
 /// Write the self-managed marker file. If `entries` is empty, the file is
 /// removed (matching `remove_self_managed`'s "delete when empty" semantics).
-fn save_self_managed(project_root: &Path, entries: &[SelfManagedEntry]) -> Result<()> {
+fn save_self_managed_unlocked(project_root: &Path, entries: &[SelfManagedEntry]) -> Result<()> {
     let path = managed_configs_path(project_root);
 
     if entries.is_empty() {
@@ -118,11 +177,26 @@ fn save_self_managed(project_root: &Path, entries: &[SelfManagedEntry]) -> Resul
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
 
-    let file = SelfManagedFile {
+    let state = SelfManagedFile {
         self_managed: entries.to_vec(),
     };
-    let serialized = toml::to_string_pretty(&file).context("serializing managed_configs.toml")?;
-    std::fs::write(&path, serialized).with_context(|| format!("writing {}", path.display()))?;
+    let serialized = toml::to_string_pretty(&state).context("serializing managed_configs.toml")?;
+    let parent = path
+        .parent()
+        .context("managed config state path has no parent directory")?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("creating staged state file in {}", parent.display()))?;
+    staged
+        .write_all(serialized.as_bytes())
+        .with_context(|| format!("writing staged state for {}", path.display()))?;
+    staged
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("syncing staged state for {}", path.display()))?;
+    staged
+        .persist(&path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("atomically replacing {}", path.display()))?;
     Ok(())
 }
 
@@ -153,6 +227,7 @@ pub(crate) fn prune_stale_self_managed(
     current_platform_targets: &[String],
     all_platform_targets: &[String],
 ) -> Result<usize> {
+    let _lock = StateLock::acquire(project_root)?;
     let mut entries = load_self_managed(project_root)?;
     if entries.is_empty() {
         return Ok(0);
@@ -180,7 +255,7 @@ pub(crate) fn prune_stale_self_managed(
     let removed = before_len - entries.len();
 
     if removed > 0 {
-        save_self_managed(project_root, &entries)?;
+        save_self_managed_unlocked(project_root, &entries)?;
     }
 
     Ok(removed)
@@ -432,6 +507,42 @@ mod tests {
 
         let loaded = load_self_managed(dir.path()).unwrap();
         assert_eq!(loaded.len(), 1);
+    }
+
+    #[test]
+    fn concurrent_adds_preserve_every_unique_entry() {
+        let dir = tempdir().unwrap();
+        let root = std::sync::Arc::new(dir.path().to_path_buf());
+        let mut workers = Vec::new();
+
+        for index in 0..16 {
+            let root = std::sync::Arc::clone(&root);
+            workers.push(std::thread::spawn(move || {
+                add_self_managed(
+                    &root,
+                    SelfManagedEntry {
+                        name: format!("config-{index}"),
+                        source: format!("/source/{index}"),
+                        target: format!("/target/{index}"),
+                    },
+                )
+            }));
+        }
+
+        for worker in workers {
+            worker.join().expect("worker should not panic").unwrap();
+        }
+
+        let loaded = load_self_managed(&root).unwrap();
+        assert_eq!(loaded.len(), 16, "concurrent updates must not be lost");
+        for index in 0..16 {
+            assert!(
+                loaded
+                    .iter()
+                    .any(|entry| entry.target == format!("/target/{index}")),
+                "entry {index} should be preserved"
+            );
+        }
     }
 
     // ── remove_self_managed tests ─────────────────────────────────────────────

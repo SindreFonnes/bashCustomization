@@ -1,6 +1,9 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -67,10 +70,7 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding HashiCorp apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/hashicorp.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/hashicorp.list")?;
 
     println!("Installing terraform...");
     package_manager::apt_install("terraform")?;
@@ -78,4 +78,3 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     println!("Terraform installed");
     Ok(())
 }
-

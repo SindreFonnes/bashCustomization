@@ -20,6 +20,10 @@ impl crate::install::Installer for BaseInstaller {
         false // always run to ensure all base packages are present
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_nixos()
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 

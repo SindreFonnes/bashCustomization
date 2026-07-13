@@ -21,6 +21,16 @@ impl crate::install::Installer for DoasInstaller {
         command::exists("doas")
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_alpine() || platform.is_debian()
+    }
+
+    fn include_in_all(&self, platform: &Platform) -> bool {
+        platform.is_alpine()
+            && command::is_root()
+            && !crate::common::privilege::has_path_escalator()
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 

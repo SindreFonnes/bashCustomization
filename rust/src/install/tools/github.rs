@@ -61,10 +61,7 @@ fn install_github_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding GitHub CLI apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/github-cli.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/github-cli.list")?;
 
     println!("Installing gh...");
     package_manager::apt_install("gh")?;

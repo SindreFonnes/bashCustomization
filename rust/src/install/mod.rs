@@ -18,6 +18,9 @@ pub struct InstallConfig {
 pub enum InstallOutcome {
     Installed,
     Skipped(String),
+    NotApplicable(String),
+    Guidance(String),
+    Planned,
     Failed(String),
 }
 
@@ -27,6 +30,12 @@ pub trait Installer: Send + Sync {
     fn needs_sudo(&self, platform: &Platform) -> bool;
     fn is_installed(&self) -> bool;
     fn install(&self, config: &InstallConfig) -> Result<()>;
+    fn is_applicable(&self, _platform: &Platform) -> bool {
+        true
+    }
+    fn include_in_all(&self, platform: &Platform) -> bool {
+        self.is_applicable(platform)
+    }
     fn phase(&self) -> u8 {
         1
     }
@@ -106,6 +115,12 @@ impl Installer for Tool {
     }
     fn install(&self, config: &InstallConfig) -> Result<()> {
         delegate!(self, install, config)
+    }
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        delegate!(self, is_applicable, platform)
+    }
+    fn include_in_all(&self, platform: &Platform) -> bool {
+        delegate!(self, include_in_all, platform)
     }
     fn phase(&self) -> u8 {
         delegate!(self, phase)

@@ -78,8 +78,7 @@ pub async fn ensure_apt_updated() {
 }
 
 async fn init_container() -> Result<TestContainer> {
-    let docker =
-        Docker::connect_with_local_defaults().context("connecting to Docker daemon")?;
+    let docker = Docker::connect_with_local_defaults().context("connecting to Docker daemon")?;
 
     let repo = repo_root();
     let docker_path = docker_dir();
@@ -99,7 +98,10 @@ async fn init_container() -> Result<TestContainer> {
 
     // Step 2: Extract the bashc binary from the builder image into tests/docker/bashc.
     let binary_dest = docker_path.join("bashc");
-    println!("==> Extracting bashc binary to {}...", binary_dest.display());
+    println!(
+        "==> Extracting bashc binary to {}...",
+        binary_dest.display()
+    );
     TestContainer::extract_binary(&docker, BUILDER_IMAGE_TAG, &binary_dest)
         .await
         .context("extracting bashc binary")?;
@@ -108,23 +110,17 @@ async fn init_container() -> Result<TestContainer> {
     // Step 3: Build the Debian test image.
     // Build context is tests/docker/ because Dockerfile.debian COPYs bashc from that dir.
     println!("==> Building Debian test image ({DEBIAN_IMAGE_TAG})...");
-    TestContainer::build_image(
-        &docker,
-        DEBIAN_IMAGE_TAG,
-        "Dockerfile.debian",
-        &docker_path,
-    )
-    .await
-    .context("building Debian test image")?;
+    TestContainer::build_image(&docker, DEBIAN_IMAGE_TAG, "Dockerfile.debian", &docker_path)
+        .await
+        .context("building Debian test image")?;
     println!("==> Debian image ready.");
 
     // Step 4: Create and start the test container.
     // Note: create_and_start removes any leftover container with the same name.
     println!("==> Starting container ({CONTAINER_NAME})...");
-    let container =
-        TestContainer::create_and_start(&docker, DEBIAN_IMAGE_TAG, CONTAINER_NAME)
-            .await
-            .context("creating and starting Debian container")?;
+    let container = TestContainer::create_and_start(&docker, DEBIAN_IMAGE_TAG, CONTAINER_NAME)
+        .await
+        .context("creating and starting Debian container")?;
     println!("==> Container running.");
 
     Ok(container)

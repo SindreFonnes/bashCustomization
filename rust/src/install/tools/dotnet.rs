@@ -1,6 +1,9 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -72,10 +75,7 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding Microsoft apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/microsoft-dotnet.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/microsoft-dotnet.list")?;
 
     println!("Installing dotnet-sdk-8.0...");
     package_manager::apt_install("dotnet-sdk-8.0")?;
@@ -108,7 +108,9 @@ fn parse_os_release_content(content: &str) -> Result<(String, String)> {
     }
 
     if version_id.is_empty() {
-        bail!("Could not determine VERSION_ID from /etc/os-release — needed for Microsoft repo URL");
+        bail!(
+            "Could not determine VERSION_ID from /etc/os-release — needed for Microsoft repo URL"
+        );
     }
 
     Ok((id, version_id))

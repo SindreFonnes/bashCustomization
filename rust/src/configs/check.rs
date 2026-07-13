@@ -10,8 +10,8 @@ use crate::common::platform::Platform;
 use crate::configs::link::create_symlink;
 use crate::configs::manifest::{load_manifest, load_manifest_unfiltered};
 use crate::configs::state::{
-    detect_state, load_self_managed, prune_stale_self_managed, remove_self_managed,
-    SelfManagedEntry,
+    SelfManagedEntry, detect_state, load_self_managed, prune_stale_self_managed,
+    remove_self_managed,
 };
 use crate::configs::{ConfigEntry, EntryState};
 
@@ -146,8 +146,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
-    use crate::configs::state::{add_self_managed, load_self_managed, SelfManagedEntry};
     use crate::configs::Strategy;
+    use crate::configs::state::{SelfManagedEntry, add_self_managed, load_self_managed};
 
     fn make_entry(name: &str, source: &Path, target: &Path) -> ConfigEntry {
         ConfigEntry {

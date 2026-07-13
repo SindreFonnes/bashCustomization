@@ -34,6 +34,32 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
 
 /// Run a single installer with pre-flight checks.
 fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
+    if !tool.is_applicable(&config.platform) {
+        return InstallOutcome::NotApplicable(format!("not applicable on {}", config.platform));
+    }
+
+    if config.platform.is_nixos() {
+        if config.dry_run {
+            println!(
+                "  Would provide NixOS declarative guidance for {}",
+                tool.name()
+            );
+            return InstallOutcome::Planned;
+        }
+
+        return match crate::common::package_manager::nix_guidance(tool.name()) {
+            Ok(()) => InstallOutcome::Guidance("declarative NixOS configuration".to_string()),
+            Err(e) => InstallOutcome::Failed(format!("{e:#}")),
+        };
+    }
+
+    if config.dry_run {
+        return match tool.install(config) {
+            Ok(()) => InstallOutcome::Planned,
+            Err(e) => InstallOutcome::Failed(format!("{e:#}")),
+        };
+    }
+
     if tool.is_installed() {
         return InstallOutcome::Skipped("already installed".to_string());
     }
@@ -46,11 +72,6 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
             "requires root privileges — no sudo/doas/su found to install {}",
             tool.name()
         ));
-    }
-
-    if config.dry_run {
-        println!("Would install {}", tool.name());
-        return InstallOutcome::Skipped("dry-run".to_string());
     }
 
     println!("\n--- Installing {} ---", tool.name());
@@ -67,7 +88,8 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
         let needs_sudo: Vec<&str> = ALL_TOOLS
             .iter()
             .filter(|t| {
-                t.needs_sudo(&config.platform)
+                t.include_in_all(&config.platform)
+                    && t.needs_sudo(&config.platform)
                     && !crate::common::command::is_root()
                     && !crate::common::privilege::has_path_escalator()
             })
@@ -128,7 +150,13 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     if !phase0.is_empty() {
         println!("=== Phase 0: Base packages ===");
         for tool in &phase0 {
-            let outcome = run_one(tool, config);
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
             results.push((tool.name().to_string(), outcome));
         }
     }
@@ -139,7 +167,13 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     if !phase1.is_empty() {
         println!("\n=== Phase 1: Tools ===");
         for tool in &phase1 {
-            let outcome = run_one(tool, config);
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
             results.push((tool.name().to_string(), outcome));
         }
     }
@@ -148,7 +182,13 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     if !phase2.is_empty() {
         println!("\n=== Phase 2: JavaScript tools ===");
         for tool in &phase2 {
-            let outcome = run_one(tool, config);
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
             results.push((tool.name().to_string(), outcome));
         }
     }
@@ -189,6 +229,11 @@ fn print_single_outcome(name: &str, outcome: &InstallOutcome) {
     match outcome {
         InstallOutcome::Installed => println!("✓ {name} installed successfully"),
         InstallOutcome::Skipped(reason) => println!("- {name} skipped ({reason})"),
+        InstallOutcome::NotApplicable(reason) => {
+            println!("- {name} not applicable ({reason})")
+        }
+        InstallOutcome::Guidance(reason) => println!("- {name} guidance provided ({reason})"),
+        InstallOutcome::Planned => println!("- {name} planned (dry-run)"),
         InstallOutcome::Failed(reason) => println!("✗ {name} failed: {reason}"),
     }
 }
@@ -202,16 +247,45 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::Skipped(_)))
         .collect();
+    let not_applicable: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::NotApplicable(_)))
+        .collect();
+    let planned: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Planned))
+        .collect();
+    let guidance: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Guidance(_)))
+        .collect();
     let failed: Vec<_> = results
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::Failed(_)))
         .collect();
 
-    let total = results.len();
-    let success = installed.len();
+    let applicable =
+        installed.len() + skipped.len() + guidance.len() + planned.len() + failed.len();
+    let completed = installed.len() + skipped.len() + guidance.len();
 
     println!("\n{}", "=".repeat(50));
-    println!("Installed {success}/{total} tools successfully.\n");
+    if !planned.is_empty() {
+        println!(
+            "Planned {}/{} applicable tools.\n",
+            planned.len(),
+            applicable
+        );
+    } else {
+        println!("Completed {completed}/{applicable} applicable tools successfully.\n");
+    }
+
+    if !installed.is_empty() {
+        println!("Installed:");
+        for (name, _) in &installed {
+            println!("  {name}");
+        }
+        println!();
+    }
 
     if !skipped.is_empty() {
         println!("Skipped:");
@@ -219,6 +293,34 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
             if let InstallOutcome::Skipped(reason) = outcome {
                 println!("  {name} — {reason}");
             }
+        }
+        println!();
+    }
+
+    if !not_applicable.is_empty() {
+        println!("Not applicable:");
+        for (name, outcome) in &not_applicable {
+            if let InstallOutcome::NotApplicable(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !guidance.is_empty() {
+        println!("Guidance provided:");
+        for (name, outcome) in &guidance {
+            if let InstallOutcome::Guidance(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !planned.is_empty() {
+        println!("Planned:");
+        for (name, _) in &planned {
+            println!("  {name}");
         }
         println!();
     }
@@ -302,19 +404,62 @@ mod tests {
     }
 
     #[test]
-    fn run_one_dry_run_skips() {
+    fn run_one_dry_run_plans() {
         let config = test_config(true);
         let tool = find_tool("ripgrep").unwrap();
         let outcome = run_one(&tool, &config);
-        match outcome {
-            InstallOutcome::Skipped(reason) => {
-                assert!(
-                    reason.contains("dry-run") || reason.contains("already installed"),
-                    "unexpected skip reason: {reason}"
-                );
-            }
-            _ => panic!("expected Skipped outcome in dry-run mode"),
-        }
+        assert!(matches!(outcome, InstallOutcome::Planned));
+    }
+
+    #[test]
+    fn doas_is_not_applicable_on_macos() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::MacOs,
+                arch: Arch::Aarch64,
+            },
+            dry_run: true,
+        };
+        let tool = find_tool("doas").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::NotApplicable(_)
+        ));
+    }
+
+    #[test]
+    fn brew_is_not_applicable_on_alpine() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::Linux(Distro::Alpine),
+                arch: Arch::X86_64,
+            },
+            dry_run: true,
+        };
+        let tool = find_tool("brew").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::NotApplicable(_)
+        ));
+    }
+
+    #[test]
+    fn nixos_install_returns_guidance_outcome() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
+            dry_run: false,
+        };
+        let tool = find_tool("docker").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::Guidance(_)
+        ));
     }
 
     #[test]

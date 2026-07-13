@@ -158,7 +158,16 @@ pub fn brew_install_cask(package: &str) -> Result<()> {
 pub fn install(platform: &Platform, package: &str) -> Result<()> {
     // macOS: brew only
     if platform.is_mac() {
+        ensure_brew(platform).context("Homebrew is required for package installation on macOS")?;
         return brew_install(package);
+    }
+
+    // A single-tool install must establish the same preferred package-manager
+    // prerequisite that `install all` establishes in its base phase. On Linux,
+    // a failed Homebrew bootstrap records the failure and falls back to the
+    // distro-native manager below.
+    if is_brew_applicable(platform) && !is_brew_failed() && !has_brew() {
+        let _ = ensure_brew(platform);
     }
 
     // Linux/WSL: route based on distro

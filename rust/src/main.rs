@@ -87,8 +87,9 @@ async fn main() -> anyhow::Result<()> {
             tool,
             interactive,
             dry_run,
-            verbose: _,
+            verbose,
         } => {
+            common::command::set_verbose(verbose);
             let platform = common::platform::Platform::detect()?;
             println!("Detected platform: {}", platform);
 

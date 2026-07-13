@@ -28,7 +28,7 @@ if [[ $PROFILE_SHELL == "zsh" && -n "$ZSH" && -f "$ZSH/oh-my-zsh.sh" ]]; then
 		zsh-interactive-cd
 		zsh-navigation-tools
 	)
-	source "$ZSH/oh-my-zsh.sh";
+		_bashc_source_file "$ZSH/oh-my-zsh.sh" || return 1
 fi
 
 if [[ $IS_MAC == "true" ]]; then

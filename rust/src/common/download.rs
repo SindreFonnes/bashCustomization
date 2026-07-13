@@ -46,13 +46,15 @@ pub fn download_file(url: &str, dest: &Path) -> Result<()> {
         pb
     };
 
-    let mut file = File::create(dest)
-        .with_context(|| format!("failed to create {}", dest.display()))?;
+    let mut file =
+        File::create(dest).with_context(|| format!("failed to create {}", dest.display()))?;
 
     let mut reader = resp;
     let mut buf = [0u8; 8192];
     loop {
-        let n = reader.read(&mut buf).context("read error during download")?;
+        let n = reader
+            .read(&mut buf)
+            .context("read error during download")?;
         if n == 0 {
             break;
         }
@@ -90,8 +92,8 @@ pub fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T> {
 
 /// Compute SHA256 of a file and compare to expected hex hash.
 pub fn verify_sha256(file_path: &Path, expected_hex: &str) -> Result<()> {
-    let mut file = File::open(file_path)
-        .with_context(|| format!("failed to open {}", file_path.display()))?;
+    let mut file =
+        File::open(file_path).with_context(|| format!("failed to open {}", file_path.display()))?;
 
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 8192];

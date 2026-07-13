@@ -12,10 +12,18 @@ restart_shell () {
 }
 
 execute_command_in_folder_and_go_back () {
-	local current_location=$(pwd) &&
-	cd "$2" &&
-	$1;
-	cd "$current_location";
+	local current_location
+	local command_status
+	current_location=$(pwd) || return 1
+	cd "$2" || return 1
+	"$1"
+	command_status=$?
+	cd "$current_location" || return 1
+
+	if [[ $command_status -ne 0 ]]; then
+		return "$command_status"
+	fi
+
 	echo "Done";
 }
 

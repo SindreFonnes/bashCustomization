@@ -3,16 +3,16 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
-use dialoguer::theme::ColorfulTheme;
+use anyhow::{Result, bail};
 use dialoguer::Confirm;
+use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{
-    detect_state, is_self_managed, load_self_managed, remove_self_managed, SelfManagedEntry,
+    SelfManagedEntry, detect_state, is_self_managed, load_self_managed, remove_self_managed,
 };
-use crate::configs::{display_target, format_source, home_dir, ConfigEntry, EntryState};
+use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -200,8 +200,8 @@ mod tests {
     use std::os::unix::fs::symlink;
     use tempfile::tempdir;
 
-    use crate::configs::state::{add_self_managed, load_self_managed, SelfManagedEntry};
     use crate::configs::Strategy;
+    use crate::configs::state::{SelfManagedEntry, add_self_managed, load_self_managed};
 
     fn fake_home() -> PathBuf {
         PathBuf::from("/home/testuser")

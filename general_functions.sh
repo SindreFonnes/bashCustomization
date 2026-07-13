@@ -43,14 +43,30 @@ determine_running_shell () {
 	fi
 }
 
+_bashc_source_file () {
+	local source_path
+	source_path=$1
+
+	if [ ! -r "$source_path" ]; then
+		printf 'bashc: required shell module is not readable: %s\n' "$source_path" >&2
+		return 1
+	fi
+
+	if ! . "$source_path"; then
+		printf 'bashc: failed to source required shell module: %s\n' "$source_path" >&2
+		return 1
+	fi
+}
+
 load_shell_extentionfiles () {
-	source "$bashC/variables.sh" &&
-	source "$bashC/shellFunctionality/shellMain.sh" &&
-	source "$bashC/standard_settings.sh" &&
-	source "$bashC/installScripts/installMain.sh" &&
-	source "$bashC/programExtensions/extentionsMain.sh" &&
-	source "$bashC/generalScripts/gScriptMain.sh" &&
-	source "$local_dir/local_main.sh" &&
+	_bashc_source_file "$bashC/variables.sh" || return 1
+	_bashc_source_file "$bashC/shellFunctionality/shellMain.sh" || return 1
+	_bashc_source_file "$bashC/standard_settings.sh" || return 1
+	_bashc_source_file "$bashC/installScripts/installMain.sh" || return 1
+	_bashc_source_file "$bashC/programExtensions/extentionsMain.sh" || return 1
+	_bashc_source_file "$bashC/generalScripts/gScriptMain.sh" || return 1
+	_bashc_source_file "$local_dir/local_main.sh" || return 1
+
 	if [[ $1 == "" ]]; then
 		echo "Done reloading files!";
 	elif [[ $1 == "first_load" ]]; then

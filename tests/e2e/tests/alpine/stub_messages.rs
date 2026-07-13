@@ -13,8 +13,10 @@ async fn assert_tool_no_panic(tool: &str) {
 
     // Must not produce a Rust panic.
     assert!(
-        !result.stdout.contains("thread '") && !result.stderr.contains("thread '")
-            && !result.stdout.contains("panicked at") && !result.stderr.contains("panicked at"),
+        !result.stdout.contains("thread '")
+            && !result.stderr.contains("thread '")
+            && !result.stdout.contains("panicked at")
+            && !result.stderr.contains("panicked at"),
         "process panicked unexpectedly for tool '{}'\n--- stdout ---\n{}\n--- stderr ---\n{}",
         tool,
         result.stdout,
@@ -33,8 +35,10 @@ async fn assert_tool_stub(tool: &str) {
 
     // Must not panic.
     assert!(
-        !result.stdout.contains("thread '") && !result.stderr.contains("thread '")
-            && !result.stdout.contains("panicked at") && !result.stderr.contains("panicked at"),
+        !result.stdout.contains("thread '")
+            && !result.stderr.contains("thread '")
+            && !result.stdout.contains("panicked at")
+            && !result.stderr.contains("panicked at"),
         "process panicked unexpectedly for tool '{}'\n--- stdout ---\n{}\n--- stderr ---\n{}",
         tool,
         result.stdout,

@@ -102,12 +102,10 @@ fn parse_manifest_entries(
 
     let configs_dir = project_root.join("configs");
     let mut entries = Vec::new();
+    let mut seen_targets: Vec<(PathBuf, Option<String>, String)> = Vec::new();
 
     for raw_entry in raw.config {
-        // Platform filtering — only applied when a filter is supplied
-        if platform_filter.is_some_and(|p| !platform_matches(&raw_entry.platform, p)) {
-            continue;
-        }
+        validate_platform_selector(&raw_entry.platform, &raw_entry.name)?;
 
         validate_relative_source(&raw_entry.source, &raw_entry.name)?;
 
@@ -125,6 +123,36 @@ fn parse_manifest_entries(
         let target = expand_tilde(&raw_entry.target, home);
         validate_absolute_target(&target, &raw_entry.target, &raw_entry.name)?;
 
+        if let Some((_, previous_platform, previous_name)) =
+            seen_targets
+                .iter()
+                .find(|(previous_target, previous_platform, _)| {
+                    previous_target == &target
+                        && platform_scopes_overlap(previous_platform, &raw_entry.platform)
+                })
+        {
+            anyhow::bail!(
+                "Duplicate active target {} for configs '{}' ({}) and '{}' ({}); target paths must be unique within each platform",
+                target.display(),
+                previous_name,
+                platform_scope_label(previous_platform),
+                raw_entry.name,
+                platform_scope_label(&raw_entry.platform)
+            );
+        }
+
+        seen_targets.push((
+            target.clone(),
+            raw_entry.platform.clone(),
+            raw_entry.name.clone(),
+        ));
+
+        // Platform filtering is deliberately applied only after validation so
+        // typos and conflicting entries cannot become invisible on one OS.
+        if platform_filter.is_some_and(|p| !platform_matches(&raw_entry.platform, p)) {
+            continue;
+        }
+
         entries.push(ConfigEntry {
             name: raw_entry.name,
             source,
@@ -134,6 +162,27 @@ fn parse_manifest_entries(
     }
 
     Ok(entries)
+}
+
+/// Validate the manifest's small, explicit platform vocabulary.
+fn validate_platform_selector(platform: &Option<String>, name: &str) -> Result<()> {
+    match platform.as_deref() {
+        None | Some("macos" | "linux") => Ok(()),
+        Some(other) => anyhow::bail!(
+            "Invalid platform selector for config '{}': '{}'; expected 'macos', 'linux', or no platform field",
+            name,
+            other
+        ),
+    }
+}
+
+/// Return whether two manifest entries can be active on the same platform.
+fn platform_scopes_overlap(left: &Option<String>, right: &Option<String>) -> bool {
+    left.is_none() || right.is_none() || left == right
+}
+
+fn platform_scope_label(platform: &Option<String>) -> &str {
+    platform.as_deref().unwrap_or("all platforms")
 }
 
 /// Validate that a manifest source remains inside the repo's `configs/` tree.
@@ -180,21 +229,14 @@ fn validate_absolute_target(target: &Path, raw_target: &str, name: &str) -> Resu
 /// - `None`/omitted → matches all platforms
 /// - `"macos"` → matches only `Os::MacOs`
 /// - `"linux"` → matches `Os::Linux(_)` and `Os::Wsl(_)`
-/// - any other value → non-matching, silently skipped
 ///
-/// Unknown values are dropped without a warning because `load_manifest`
-/// runs on every interactive shell startup via `bashc configs check`; a
-/// single typo in `manifest.toml` would otherwise spam the terminal on
-/// every launch. Invalid entries become invisible to current-platform
-/// commands, which is the safe default — manifest typos surface via
-/// `bashc configs status` (the entry is missing from the listing) rather
-/// than via repeated startup noise.
+/// Invalid values are rejected before this helper is called.
 fn platform_matches(raw: &Option<String>, platform: &Platform) -> bool {
     match raw.as_deref() {
         None => true,
         Some("macos") => matches!(platform.os, Os::MacOs),
         Some("linux") => matches!(platform.os, Os::Linux(_) | Os::Wsl(_)),
-        Some(_) => false,
+        Some(_) => unreachable!("platform selectors are validated before filtering"),
     }
 }
 
@@ -380,10 +422,7 @@ platform = "linux"
     }
 
     #[test]
-    fn unknown_platform_filter_is_silently_skipped() {
-        // Unknown platform values must not warn (check runs on every shell
-        // startup — per-load noise would spam the terminal). The entry is
-        // simply filtered out on every real platform.
+    fn unknown_platform_filter_is_rejected() {
         let toml = r#"
 [[config]]
 name = "typo"
@@ -392,13 +431,27 @@ target = "~/.typo"
 platform = "macosX"
 "#;
         for platform in [mac_platform(), linux_platform(), wsl_platform()] {
-            let entries = load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
-                .expect("should parse");
+            let err = load_manifest_from_str(toml, &fake_root(), &platform, FAKE_HOME)
+                .expect_err("unknown platform selectors must be rejected");
             assert!(
-                entries.is_empty(),
-                "unknown platform filter should be filtered out, got: {entries:?}"
+                err.to_string().contains("Invalid platform selector"),
+                "unexpected error: {err}"
             );
         }
+    }
+
+    #[test]
+    fn invalid_platform_is_rejected_even_when_entry_would_be_filtered() {
+        let toml = r#"
+[[config]]
+name = "typo"
+source = "typo/config"
+target = "~/.typo"
+platform = "windows"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("validation must happen before filtering");
+        assert!(err.to_string().contains("expected 'macos', 'linux'"));
     }
 
     #[test]
@@ -527,6 +580,71 @@ target = ".config/bad"
             msg.contains("target must be absolute"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn duplicate_universal_targets_are_rejected() {
+        let toml = r#"
+[[config]]
+name = "first"
+source = "first/config"
+target = "~/.shared"
+
+[[config]]
+name = "second"
+source = "second/config"
+target = "~/.shared"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("duplicate targets must be rejected");
+        let message = err.to_string();
+        assert!(message.contains("Duplicate active target"));
+        assert!(message.contains("first"));
+        assert!(message.contains("second"));
+    }
+
+    #[test]
+    fn universal_and_platform_specific_duplicate_targets_are_rejected() {
+        let toml = r#"
+[[config]]
+name = "universal"
+source = "universal/config"
+target = "~/.shared"
+
+[[config]]
+name = "linux-only"
+source = "linux/config"
+target = "~/.shared"
+platform = "linux"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("overlapping platform scopes must be rejected before filtering");
+        assert!(err.to_string().contains("Duplicate active target"));
+    }
+
+    #[test]
+    fn same_target_is_allowed_for_disjoint_platforms() {
+        let toml = r#"
+[[config]]
+name = "settings"
+source = "settings/macos"
+target = "~/.settings"
+platform = "macos"
+
+[[config]]
+name = "settings"
+source = "settings/linux"
+target = "~/.settings"
+platform = "linux"
+"#;
+        let mac_entries = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect("disjoint target scopes should be valid");
+        assert_eq!(mac_entries.len(), 1);
+        assert!(mac_entries[0].source.ends_with("settings/macos"));
+
+        let all_entries = load_manifest_from_str_unfiltered(toml, &fake_root(), FAKE_HOME)
+            .expect("unfiltered loading must preserve both disjoint entries");
+        assert_eq!(all_entries.len(), 2);
     }
 
     // -----------------------------------------------------------------------

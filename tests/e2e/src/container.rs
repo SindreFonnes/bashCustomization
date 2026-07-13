@@ -6,9 +6,9 @@ use bollard::container::{
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::image::BuildImageOptions;
 use bollard::Docker;
+use futures_util::StreamExt;
 use std::io::Read as _;
 use std::path::Path;
-use futures_util::StreamExt;
 
 /// Result of executing a command inside a container.
 #[derive(Debug, Clone)]
@@ -27,18 +27,19 @@ pub struct TestContainer {
 impl TestContainer {
     /// Build a Docker image from a Dockerfile and build context directory.
     ///
-    /// If the image already exists and `REBUILD_IMAGES` is not set, the build is skipped.
+    /// Images are rebuilt by default so source changes cannot accidentally be
+    /// tested against a stale binary. Set `REUSE_E2E_IMAGES=1` to opt into
+    /// local cache reuse; `REBUILD_IMAGES=1` overrides that opt-in.
     pub async fn build_image(
         docker: &Docker,
         image_tag: &str,
         dockerfile: &str,
         build_context_path: &Path,
     ) -> Result<()> {
-        // Check if image already exists and REBUILD_IMAGES is not set.
-        if std::env::var("REBUILD_IMAGES").is_err() {
-            if docker.inspect_image(image_tag).await.is_ok() {
-                return Ok(());
-            }
+        let reuse_requested =
+            std::env::var("REUSE_E2E_IMAGES").is_ok() && std::env::var("REBUILD_IMAGES").is_err();
+        if reuse_requested && docker.inspect_image(image_tag).await.is_ok() {
+            return Ok(());
         }
 
         let tar_bytes = create_tar_archive(build_context_path)
@@ -72,10 +73,7 @@ impl TestContainer {
         builder_image_tag: &str,
         dest_path: &Path,
     ) -> Result<()> {
-        let container_name = format!(
-            "bashc-binary-extractor-{}",
-            std::process::id()
-        );
+        let container_name = format!("bashc-binary-extractor-{}", std::process::id());
 
         // Create a container (do not start it -- we just need the filesystem).
         let config = Config {
@@ -128,8 +126,10 @@ impl TestContainer {
         container_name: &str,
         dest_path: &Path,
     ) -> Result<()> {
-        let tar_stream = docker
-            .download_from_container(container_name, Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }));
+        let tar_stream = docker.download_from_container(
+            container_name,
+            Some(bollard::container::DownloadFromContainerOptions { path: "/bashc" }),
+        );
 
         let mut tar_bytes: Vec<u8> = Vec::new();
         let mut stream = tar_stream;
@@ -139,29 +139,22 @@ impl TestContainer {
         }
 
         let mut archive = tar::Archive::new(tar_bytes.as_slice());
-        let mut extracted = false;
-        for entry in archive.entries().context("reading tar entries")? {
-            let mut entry = entry.context("reading tar entry")?;
-            let mut contents = Vec::new();
-            entry
-                .read_to_end(&mut contents)
-                .context("reading binary from tar entry")?;
-            std::fs::write(dest_path, &contents)
-                .with_context(|| format!("writing binary to {}", dest_path.display()))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let perms = std::fs::Permissions::from_mode(0o755);
-                std::fs::set_permissions(dest_path, perms)?;
-            }
-            extracted = true;
-            break;
-        }
-
-        if !extracted {
-            anyhow::bail!(
-                "no file found in container at /bashc — builder image may be broken"
-            );
+        let mut entries = archive.entries().context("reading tar entries")?;
+        let mut entry = entries
+            .next()
+            .context("no file found in container at /bashc — builder image may be broken")?
+            .context("reading tar entry")?;
+        let mut contents = Vec::new();
+        entry
+            .read_to_end(&mut contents)
+            .context("reading binary from tar entry")?;
+        std::fs::write(dest_path, &contents)
+            .with_context(|| format!("writing binary to {}", dest_path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(dest_path, perms)?;
         }
 
         Ok(())
@@ -275,10 +268,7 @@ impl TestContainer {
     pub async fn cleanup(self) -> Result<()> {
         let _ = self
             .docker
-            .stop_container(
-                &self.container_id,
-                Some(StopContainerOptions { t: 5 }),
-            )
+            .stop_container(&self.container_id, Some(StopContainerOptions { t: 5 }))
             .await;
 
         self.docker
@@ -306,9 +296,7 @@ const TAR_EXCLUDE_DIRS: &[&str] = &[".git", "target", "rust/target", "node_modul
 fn create_tar_archive(context_path: &Path) -> Result<Vec<u8>> {
     let mut archive = tar::Builder::new(Vec::new());
     append_dir_filtered(&mut archive, context_path, context_path)?;
-    let bytes = archive
-        .into_inner()
-        .context("finalizing tar archive")?;
+    let bytes = archive.into_inner().context("finalizing tar archive")?;
     Ok(bytes)
 }
 
@@ -323,10 +311,7 @@ fn append_dir_filtered(
     {
         let entry = entry?;
         let path = entry.path();
-        let rel = path
-            .strip_prefix(base)
-            .unwrap_or(&path)
-            .to_string_lossy();
+        let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy();
 
         // Skip excluded directories.
         if path.is_dir() && TAR_EXCLUDE_DIRS.iter().any(|ex| rel == *ex) {

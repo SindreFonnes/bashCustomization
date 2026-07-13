@@ -7,7 +7,7 @@ fi
 export MYINSTALL_COMMON_FUNCTIONS_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/commonMyinstallFunctions.sh;
 export MYINSTALL_SCRIPT_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/installScript.sh
 
-source "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh";
+_bashc_source_file "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh" || return 1
 
 run_my_install () {
     # Prefer bashc Rust binary when available
