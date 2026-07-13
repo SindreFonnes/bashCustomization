@@ -14,9 +14,34 @@ pub struct InstallConfig {
     pub dry_run: bool,
 }
 
+/// Whether an installer's declared user-facing outcome is currently present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallationState {
+    Missing,
+    Incomplete(String),
+    Complete,
+}
+
+/// Classify a composite installer from its named required components.
+pub(crate) fn state_from_components(components: &[(&str, bool)]) -> InstallationState {
+    let missing: Vec<&str> = components
+        .iter()
+        .filter_map(|(name, present)| (!present).then_some(*name))
+        .collect();
+
+    if missing.is_empty() {
+        InstallationState::Complete
+    } else if missing.len() == components.len() {
+        InstallationState::Missing
+    } else {
+        InstallationState::Incomplete(format!("missing {}", missing.join(", ")))
+    }
+}
+
 /// Outcome of a single install attempt.
 pub enum InstallOutcome {
     Installed,
+    Repaired(String),
     Skipped(String),
     NotApplicable(String),
     Guidance(String),
@@ -30,6 +55,29 @@ pub trait Installer: Send + Sync {
     fn needs_sudo(&self, platform: &Platform) -> bool;
     fn is_installed(&self) -> bool;
     fn install(&self, config: &InstallConfig) -> Result<()>;
+    fn installation_state(&self, _platform: &Platform) -> InstallationState {
+        if self.is_installed() {
+            InstallationState::Complete
+        } else {
+            InstallationState::Missing
+        }
+    }
+    fn verify_installation(&self, platform: &Platform) -> Result<()> {
+        match self.installation_state(platform) {
+            InstallationState::Complete => Ok(()),
+            InstallationState::Missing => {
+                anyhow::bail!("required installation postcondition is still missing")
+            }
+            InstallationState::Incomplete(reason) => {
+                anyhow::bail!("installation remains incomplete: {reason}")
+            }
+        }
+    }
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        // Most macOS installers use Homebrew as their only supported path.
+        // User-local installers and Homebrew itself override this default.
+        platform.is_mac()
+    }
     fn is_applicable(&self, _platform: &Platform) -> bool {
         true
     }
@@ -116,6 +164,15 @@ impl Installer for Tool {
     fn install(&self, config: &InstallConfig) -> Result<()> {
         delegate!(self, install, config)
     }
+    fn installation_state(&self, platform: &Platform) -> InstallationState {
+        delegate!(self, installation_state, platform)
+    }
+    fn verify_installation(&self, platform: &Platform) -> Result<()> {
+        delegate!(self, verify_installation, platform)
+    }
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        delegate!(self, requires_brew, platform)
+    }
     fn is_applicable(&self, platform: &Platform) -> bool {
         delegate!(self, is_applicable, platform)
     }
@@ -196,5 +253,21 @@ mod tests {
         let t = ALL_TOOLS[0];
         let _t2 = t;
         let _t3 = t;
+    }
+
+    #[test]
+    fn composite_state_distinguishes_missing_incomplete_and_complete() {
+        assert_eq!(
+            state_from_components(&[("one", false), ("two", false)]),
+            InstallationState::Missing
+        );
+        assert_eq!(
+            state_from_components(&[("one", true), ("two", false)]),
+            InstallationState::Incomplete("missing two".to_string())
+        );
+        assert_eq!(
+            state_from_components(&[("one", true), ("two", true)]),
+            InstallationState::Complete
+        );
     }
 }

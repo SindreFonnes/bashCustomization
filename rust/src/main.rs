@@ -50,6 +50,10 @@ enum ConfigsAction {
         /// Force a specific conflict resolution strategy (replace, discard, keep)
         #[arg(long, value_enum)]
         force: Option<Strategy>,
+
+        /// Separately acknowledge modifications whose resolved parent is outside $HOME
+        #[arg(long)]
+        allow_outside_home: bool,
     },
 
     /// Remove symlinks and optionally restore backups
@@ -60,6 +64,10 @@ enum ConfigsAction {
         /// Skip confirmation prompts (answer yes to all)
         #[arg(long)]
         yes: bool,
+
+        /// Separately acknowledge modifications whose resolved parent is outside $HOME
+        #[arg(long)]
+        allow_outside_home: bool,
     },
 
     /// Show current state of all managed configs
@@ -78,8 +86,7 @@ enum ConfigsAction {
     Check {},
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -112,11 +119,31 @@ async fn main() -> anyhow::Result<()> {
             let project_root = common::project_root::project_root()?;
 
             match action {
-                ConfigsAction::Link { name, force } => {
-                    configs::link::run_link(&project_root, &platform, name.as_deref(), force)?;
+                ConfigsAction::Link {
+                    name,
+                    force,
+                    allow_outside_home,
+                } => {
+                    configs::link::run_link(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        force,
+                        allow_outside_home,
+                    )?;
                 }
-                ConfigsAction::Unlink { name, yes } => {
-                    configs::unlink::run_unlink(&project_root, &platform, name.as_deref(), yes)?;
+                ConfigsAction::Unlink {
+                    name,
+                    yes,
+                    allow_outside_home,
+                } => {
+                    configs::unlink::run_unlink(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        yes,
+                        allow_outside_home,
+                    )?;
                 }
                 ConfigsAction::Status { name } => {
                     configs::status::run_status(&project_root, &platform, name.as_deref())?;

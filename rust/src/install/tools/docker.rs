@@ -5,7 +5,9 @@ use crate::common::{
     platform::{self, Platform},
     privilege,
 };
-use crate::install::InstallConfig;
+use crate::install::{InstallConfig, InstallationState};
+
+const DOCKER_APT_KEY_FINGERPRINTS: &[&str] = &["9DC858229FC7DD38854AE2D88D81803C0EBFCD88"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct DockerInstaller;
@@ -22,7 +24,29 @@ impl crate::install::Installer for DockerInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("docker")
+        command::exists("docker") || std::path::Path::new("/Applications/Docker.app").is_dir()
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_nixos()
+    }
+
+    fn installation_state(&self, platform: &Platform) -> InstallationState {
+        if platform.is_mac() {
+            return if self.is_installed() {
+                InstallationState::Complete
+            } else {
+                InstallationState::Missing
+            };
+        }
+
+        if !command::exists("docker") {
+            InstallationState::Missing
+        } else if command::run("docker", &["compose", "version"]).is_ok() {
+            InstallationState::Complete
+        } else {
+            InstallationState::Incomplete("docker compose plugin is missing".to_string())
+        }
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -67,7 +91,11 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
 
     println!("Adding Docker GPG key...");
     let gpg_url = format!("https://download.docker.com/linux/{docker_distro}/gpg");
-    package_manager::apt_add_gpg_key(&gpg_url, "/etc/apt/keyrings/docker.gpg")?;
+    package_manager::apt_add_gpg_key(
+        &gpg_url,
+        "/etc/apt/keyrings/docker.gpg",
+        DOCKER_APT_KEY_FINGERPRINTS,
+    )?;
 
     let dpkg_arch = platform.go_arch();
 
@@ -102,15 +130,16 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
     // WSL-specific: create docker group and add user
     if platform.is_wsl() {
         println!("Setting up Docker group for WSL...");
-        // Create docker group if it doesn't exist
-        let _ = command::run("bash", &["-c", "getent group docker || groupadd docker"]);
-        // Add current user to docker group
-        if let Ok(user) = std::env::var("USER") {
-            let _ = privilege::run_privileged("usermod", &["-aG", "docker", &user]);
-            println!(
-                "Added {user} to docker group. Log out and back in for changes to take effect."
-            );
+        if command::run("getent", &["group", "docker"]).is_err() {
+            privilege::run_privileged("groupadd", &["docker"])?;
         }
+        let user = std::env::var("USER")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| command::run("id", &["-un"]).ok())
+            .ok_or_else(|| anyhow::anyhow!("could not determine current user for docker group"))?;
+        privilege::run_privileged("usermod", &["-aG", "docker", &user])?;
+        println!("Added {user} to docker group. Log out and back in for changes to take effect.");
     }
 
     println!("Docker Engine installed ({packages})");

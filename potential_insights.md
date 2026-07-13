@@ -32,7 +32,7 @@ warning instead of panicking, and downstream tests skip if eza is not present.
 
 Unlike `ripgrep`, `shellcheck`, `bat`, `fd`, `java`, and `postgres` (all
 available in standard Debian/Ubuntu apt repos), `eza` comes from the
-third-party `http://deb.gierens.de` repo. Tests that verify eza installs in
+third-party `https://deb.gierens.de` repo. Tests that verify eza installs in
 containers need to account for the possibility that this repo is unreachable.
 
 ## java -version prints to stderr, not stdout
@@ -48,3 +48,28 @@ The original Ubuntu `setup.rs` did not expose `apt_install_lock()` or
 When `fast_installs.rs` was added for Ubuntu, these functions were added to
 `setup.rs` to match the Debian pattern and avoid apt lock contention in
 concurrent tests.
+
+## Applicability is an executable support contract
+
+An installer should report itself as applicable only when the current platform
+has a complete route to its postcondition. In particular, “Homebrew can run on
+Fedora” is not enough unless a single-tool invocation also ensures Homebrew
+before selecting the formula path. Treating applicability as a UI/filtering hint
+caused truthful not-applicable outcomes to become late package-manager failures.
+
+## Preserve legacy shell installers as reference, not an implicit fallback
+
+The older `installScripts/` files remain valuable as a searchable record of how
+the original Bash setup worked. Automatically executing them when `bashc` is
+missing, however, creates two installer contracts with different platform and
+verification guarantees. Keeping them as explicit reference material preserves
+the learning value while making the Rust install path the one supported
+responsibility boundary.
+
+## Exact repository-key sets avoid appended trust
+
+Checking that a downloaded keyring contains one expected fingerprint is weaker
+than checking its complete primary-key set: a compromised download could append
+an attacker-controlled primary key alongside the legitimate one. Apt keyring
+bootstrap should compare the exact set of primary fingerprints while allowing
+the publisher's normal subkeys.

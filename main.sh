@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # My bash customization
 ## Bash customization home
 export bashC="${BASHC_ROOT:-$HOME/bashCustomization}";

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::common::{command, download, package_manager, platform::Platform, privilege};
-use crate::install::InstallConfig;
+use crate::install::{InstallConfig, InstallationState};
 
 #[derive(Debug, Clone, Copy)]
 pub struct KubectlInstaller;
@@ -17,6 +17,21 @@ impl crate::install::Installer for KubectlInstaller {
 
     fn is_installed(&self) -> bool {
         command::exists("kubectl")
+    }
+
+    fn installation_state(&self, _platform: &Platform) -> InstallationState {
+        if !command::exists("kubectl") {
+            InstallationState::Missing
+        } else if !package_manager::is_brew_failed()
+            && package_manager::has_brew()
+            && !command::exists("kubectx")
+        {
+            InstallationState::Incomplete(
+                "kubectl exists but the brew-path kubectx companion is missing".to_string(),
+            )
+        } else {
+            InstallationState::Complete
+        }
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -76,8 +91,17 @@ fn install_kubectl_direct(platform: &Platform) -> Result<()> {
 
     // Install to /usr/local/bin
     let dest = "/usr/local/bin/kubectl";
-    privilege::run_privileged("cp", &[binary_path.to_str().unwrap(), dest])?;
-    privilege::run_privileged("chmod", &["+x", dest])?;
+    privilege::run_privileged(
+        "install",
+        &[
+            "-D",
+            "-m",
+            "0755",
+            "--",
+            binary_path.to_str().unwrap(),
+            dest,
+        ],
+    )?;
 
     let _ = std::fs::remove_file(&binary_path);
     println!("kubectl {version} installed to {dest}");

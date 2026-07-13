@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::common::{command, download, package_manager, platform::Platform, privilege};
@@ -34,7 +34,7 @@ impl crate::install::Installer for GoInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("go")
+        command::exists("go") || std::path::Path::new("/usr/local/go/bin/go").is_file()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -68,6 +68,7 @@ impl crate::install::Installer for GoInstaller {
 }
 
 fn install_go_direct(platform: &Platform) -> Result<()> {
+    command::require("tar")?;
     println!("Fetching latest Go release from go.dev...");
 
     let releases: Vec<GoRelease> = download::fetch_json("https://go.dev/dl/?mode=json")
@@ -105,18 +106,25 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     download::verify_sha256(&archive_path, &file.sha256)?;
     println!("Checksum OK");
 
-    // Remove existing Go installation if any
-    let go_dir = std::path::Path::new("/usr/local/go");
-    if go_dir.exists() {
-        privilege::run_privileged("rm", &["-rf", "/usr/local/go"])?;
+    // Extract and validate without touching the working installation.
+    let extracted_root = temp_dir.path().join("extracted");
+    std::fs::create_dir(&extracted_root)?;
+    println!("Extracting and validating staged Go distribution...");
+    command::run_visible(
+        "tar",
+        &[
+            "-C",
+            extracted_root.to_str().unwrap(),
+            "-xzf",
+            archive_path.to_str().unwrap(),
+        ],
+    )?;
+    let extracted_go = extracted_root.join("go");
+    if !extracted_go.join("bin/go").is_file() {
+        bail!("downloaded Go archive did not contain go/bin/go")
     }
 
-    // Extract
-    println!("Extracting to /usr/local/go...");
-    privilege::run_privileged(
-        "tar",
-        &["-C", "/usr/local", "-xzf", archive_path.to_str().unwrap()],
-    )?;
+    replace_go_installation(&extracted_go)?;
 
     // Clean up
     let _ = std::fs::remove_file(&archive_path);
@@ -130,6 +138,73 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn replace_go_installation(extracted_go: &std::path::Path) -> Result<()> {
+    let process_id = std::process::id();
+    let destination = std::path::Path::new("/usr/local/go");
+    let staged = std::path::PathBuf::from(format!("/usr/local/.bashc-go-stage-{process_id}"));
+    let backup = std::path::PathBuf::from(format!("/usr/local/.bashc-go-backup-{process_id}"));
+
+    if staged.symlink_metadata().is_ok() || backup.symlink_metadata().is_ok() {
+        bail!(
+            "refusing to reuse existing Go transaction paths {} or {}; remove the stale path after inspecting it",
+            staged.display(),
+            backup.display()
+        )
+    }
+
+    let extracted = path_arg(extracted_go)?;
+    let staged_arg = path_arg(&staged)?;
+    let backup_arg = path_arg(&backup)?;
+
+    println!("Staging Go distribution on /usr/local...");
+    if let Err(error) = privilege::run_privileged("cp", &["-a", "--", extracted, staged_arg]) {
+        let _ = privilege::run_privileged("rm", &["-rf", "--", staged_arg]);
+        return Err(error).context("copying staged Go distribution to /usr/local");
+    }
+    if let Err(error) = privilege::run_privileged("chown", &["-R", "root:root", staged_arg]) {
+        let _ = privilege::run_privileged("rm", &["-rf", "--", staged_arg]);
+        return Err(error).context("setting ownership on staged Go distribution");
+    }
+
+    let had_previous = destination.symlink_metadata().is_ok();
+    if had_previous
+        && let Err(error) = privilege::run_privileged("mv", &["--", "/usr/local/go", backup_arg])
+    {
+        let _ = privilege::run_privileged("rm", &["-rf", "--", staged_arg]);
+        return Err(error).context("moving the previous Go installation aside");
+    }
+
+    if let Err(install_error) =
+        privilege::run_privileged("mv", &["--", staged_arg, "/usr/local/go"])
+    {
+        if had_previous {
+            privilege::run_privileged("mv", &["--", backup_arg, "/usr/local/go"])
+                .with_context(|| {
+                    format!(
+                        "activating staged Go failed ({install_error:#}); restoring the previous installation also failed"
+                    )
+                })?;
+        }
+        let _ = privilege::run_privileged("rm", &["-rf", "--", staged_arg]);
+        return Err(install_error).context("activating staged Go distribution");
+    }
+
+    if had_previous && let Err(error) = privilege::run_privileged("rm", &["-rf", "--", backup_arg])
+    {
+        eprintln!(
+            "Warning: Go was upgraded, but the previous installation could not be removed from {}: {error:#}",
+            backup.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn path_arg(path: &std::path::Path) -> Result<&str> {
+    path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("path is not valid UTF-8: {}", path.display()))
 }
 
 #[cfg(test)]

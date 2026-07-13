@@ -25,6 +25,66 @@ pub(crate) fn home_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home))
 }
 
+/// Return whether creating, replacing, or removing the target's directory
+/// entry stays below the real home directory. Existing parent symlinks are
+/// resolved so a lexical `~/.config/...` path cannot silently operate in an
+/// external tree.
+pub(crate) fn target_is_within_home_scope(target: &Path, home: &Path) -> Result<bool> {
+    if target == home || !target.is_absolute() {
+        return Ok(false);
+    }
+
+    let canonical_home = std::fs::canonicalize(home)
+        .map_err(|error| anyhow::anyhow!("failed to resolve home {}: {error}", home.display()))?;
+    let mut ancestor = target.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "config target has no parent directory: {}",
+            target.display()
+        )
+    })?;
+
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().ok_or_else(|| {
+            anyhow::anyhow!(
+                "could not find an existing parent for config target {}",
+                target.display()
+            )
+        })?;
+    }
+
+    let canonical_ancestor = std::fs::canonicalize(ancestor).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to resolve target parent {} for {}: {error}",
+            ancestor.display(),
+            target.display()
+        )
+    })?;
+
+    Ok(canonical_ancestor.starts_with(&canonical_home))
+}
+
+pub(crate) fn require_target_authority(
+    entries: &[ConfigEntry],
+    home: &Path,
+    allow_outside_home: bool,
+) -> Result<()> {
+    let mut outside = Vec::new();
+    for entry in entries {
+        if !target_is_within_home_scope(&entry.target, home)? {
+            outside.push(entry.target.display().to_string());
+        }
+    }
+
+    if outside.is_empty() || allow_outside_home {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Refusing to modify config target(s) outside the resolved home directory:\n  {}\nReview the paths, then repeat with --allow-outside-home to acknowledge this separate authority",
+        outside.join("\n  ")
+    )
+}
+
 /// The current linkage state of a config entry.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntryState {
@@ -106,5 +166,37 @@ pub(crate) fn display_target(target: &Path, home: &Path) -> String {
         format!("~/{}", rel.display())
     } else {
         target.to_string_lossy().into_owned()
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use tempfile::tempdir;
+
+    #[test]
+    fn target_scope_rejects_home_itself_and_external_paths() {
+        let root = tempdir().unwrap();
+        let home = root.path().join("home");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        assert!(!target_is_within_home_scope(&home, &home).unwrap());
+        assert!(!target_is_within_home_scope(&outside.join("config"), &home).unwrap());
+        assert!(target_is_within_home_scope(&home.join(".config/tool/file"), &home).unwrap());
+    }
+
+    #[test]
+    fn target_scope_detects_parent_symlink_that_escapes_home() {
+        let root = tempdir().unwrap();
+        let home = root.path().join("home");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, home.join(".config")).unwrap();
+
+        assert!(!target_is_within_home_scope(&home.join(".config/tool/config"), &home).unwrap());
     }
 }

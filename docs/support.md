@@ -10,9 +10,9 @@ what the repository currently proves.
 
 | Environment | Detected | Release target selected by bootstrap | Install baseline | Current verification |
 | --- | --- | --- | --- | --- |
-| macOS x86_64 | Yes | `x86_64-apple-darwin` | Intended | Unit tests, local dry-run, Bash/Zsh smoke; no clean-host E2E |
-| macOS arm64 | Yes | `aarch64-apple-darwin` | Intended | Unit tests and local arm64 dry-run; no clean-host E2E |
-| Ubuntu/Debian x86_64 | Yes | `x86_64-unknown-linux-gnu` | Intended | Unit tests; Docker suites compile but were not executed in the 2026-07-13 pass |
+| macOS x86_64 | Yes | `x86_64-apple-darwin` | Intended | 260 main-crate tests, local dry-run, Bash/Zsh smoke; no clean-host E2E |
+| macOS arm64 | Yes | `aarch64-apple-darwin` | Intended | Modeled unit tests and local arm64 dry-run; no clean-host E2E |
+| Ubuntu/Debian x86_64 | Yes | `x86_64-unknown-linux-gnu` | Intended | Unit tests; source-fresh Docker behavior and full-install suites compile but were not executed locally |
 | Ubuntu/Debian arm64 | Yes | `aarch64-unknown-linux-gnu` | Intended | Modeled by unit tests; no arm64 E2E |
 | WSL on Ubuntu/Debian | Yes | `x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu` | Intended, not established | Platform unit tests only |
 | Fedora-family x86_64 | Yes | `x86_64-unknown-linux-gnu` | Partial | Detection and selected behavior tests; several package paths remain stubs |
@@ -30,7 +30,7 @@ what the repository currently proves.
 | Installer dry-run | Yes | Yes | Yes | Yes | Declarative plan |
 | Config status/diff/link/unlink | Implemented | Implemented | Implemented | Implemented | Implemented if binary runs |
 | `install all` clean-host proof | No | No | No | No | Not applicable |
-| Container E2E definition | No | Yes | No | Yes | Guidance suite |
+| Source-fresh default container E2E definition | No | Yes | No | Yes | Guidance suite |
 | E2E execution in latest review/remediation pass | No | Blocked by unavailable Docker daemon | No | Blocked by unavailable Docker daemon | Blocked by unavailable Docker daemon |
 
 ## Release availability
@@ -43,3 +43,12 @@ config-capable source has been released.
 
 Support should be promoted only after the applicable clean-host outcome is
 tested, not merely because a platform can be detected or a binary can be built.
+
+## Validation and security gates
+
+Pull requests and releases run Rust format/lint/unit gates, shell syntax and
+startup smoke tests, dependency advisory/license/source policy, and the
+source-fresh non-destructive distro behavior tier. `tests/e2e/run.sh` removes
+its images and containers after either success or failure. The slower real
+package-install suites are available through the `full-install-tests` feature
+but have not yet established the clean-host baseline recorded as missing above.

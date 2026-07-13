@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = []
+full-install-tests = []
+
 [dependencies]
 bollard = "0.18"
 tokio = { version = "1", features = ["full"] }

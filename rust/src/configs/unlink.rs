@@ -12,7 +12,9 @@ use crate::configs::manifest::{filter_by_name, load_manifest};
 use crate::configs::state::{
     SelfManagedEntry, detect_state, is_self_managed, load_self_managed, remove_self_managed,
 };
-use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
+use crate::configs::{
+    ConfigEntry, EntryState, display_target, format_source, home_dir, require_target_authority,
+};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -23,6 +25,7 @@ pub fn run_unlink(
     platform: &Platform,
     filter_name: Option<&str>,
     yes: bool,
+    allow_outside_home: bool,
 ) -> Result<()> {
     let home_path = home_dir()?;
 
@@ -47,6 +50,8 @@ pub fn run_unlink(
     } else {
         all_entries
     };
+
+    require_target_authority(&entries, &home_path, allow_outside_home)?;
 
     let self_managed = load_self_managed(project_root)?;
 

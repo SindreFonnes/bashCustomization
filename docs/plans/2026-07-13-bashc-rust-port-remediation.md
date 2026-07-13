@@ -26,7 +26,7 @@
 - [x] A1. Record a dated implementation review covering scope, architecture, maintainability, safeguards, portability, responsibility coverage, and validation results.
 - [x] A2. Record a requirements-driven remediation backlog with verification criteria.
 - [x] A3. Publish one current support matrix that distinguishes detected, dry-run capable, install capable, tested, and released platform/architecture combinations.
-- [ ] A4. Reconcile phase status documents with current behavior; completed status must represent satisfied user outcomes rather than the presence of files.
+- [x] A4. Reconcile phase status documents with current behavior; completed status must represent satisfied user outcomes rather than the presence of files.
 - [x] A5. Replace the top-level README bootstrap instructions with an accurate description of the hybrid architecture, prerequisites, supported platforms, and recovery guidance.
 
 ### Acceptance criteria
@@ -37,15 +37,15 @@
 
 ## Workstream B: Installer orchestration and state
 
-- [~] B1. Distinguish installed, incomplete/repairable, not applicable, guidance-only, failed, and dry-run outcomes where those differences affect user behavior.
+- [x] B1. Distinguish installed, incomplete/repairable, not applicable, guidance-only, failed, and dry-run outcomes where those differences affect user behavior.
 - [~] B2. Ensure `install all` completes successfully when all applicable tools succeed, without failing for tools intentionally unavailable on the current platform.
-- [~] B3. Ensure a single-tool request satisfies or clearly reports all prerequisites, including package-manager prerequisites.
-- [ ] B4. Detect and repair incomplete composite installations, including JavaScript tools and Debian compatibility links.
+- [x] B3. Ensure a single-tool request satisfies or clearly reports all prerequisites, including package-manager prerequisites.
+- [x] B4. Detect and repair incomplete composite installations, including JavaScript tools and Debian compatibility links.
 - [x] B5. Make dry-run show the platform-specific planned operation without making changes, including when a tool is already installed.
 - [x] B6. Make verbose behavior match the CLI contract and provide useful captured failure output by default.
-- [~] B7. Ensure the summary distinguishes newly installed, already complete, repaired, not applicable, guidance, planned, and failed operations without misleading success counts.
-- [ ] B8. Reconcile sequential versus parallel execution requirements and remove unused runtime complexity.
-- [ ] B9. Ensure ignored best-effort operations do not produce success when required postconditions are absent.
+- [x] B7. Ensure the summary distinguishes newly installed, already complete, repaired, not applicable, guidance, planned, and failed operations without misleading success counts.
+- [x] B8. Reconcile sequential versus parallel execution requirements and remove unused runtime complexity.
+- [x] B9. Ensure ignored best-effort operations do not produce success when required postconditions are absent.
 
 ### Acceptance criteria
 
@@ -75,11 +75,11 @@
 
 - [x] D1. Prevent link, replace, and discard operations from changing a target when the source is missing or unusable.
 - [x] D2. Preserve or automatically restore the previous target when replacement link creation fails.
-- [ ] D3. Require explicit, separately acknowledged authority for destructive targets outside the user's home/config scope.
+- [x] D3. Require explicit, separately acknowledged authority for destructive targets outside the user's home/config scope.
 - [x] D4. Reject duplicate active targets and invalid platform selectors when loading the manifest.
 - [x] D5. Make self-managed state updates atomic and safe against concurrent shell startups.
 - [x] D6. Make automatic startup checks tolerate races without noisy false failures or lost state.
-- [ ] D7. Validate source containment against filesystem indirection where destructive decisions depend on the source.
+- [x] D7. Validate source containment against filesystem indirection where destructive decisions depend on the source.
 - [x] D8. Document backup lifecycle, rollback behavior, and manual recovery.
 
 ### Acceptance criteria
@@ -106,14 +106,14 @@
 
 ## Workstream F: Download, upgrade, and supply-chain safeguards
 
-- [ ] F1. Define verification requirements for each direct artifact and downloaded installer script.
-- [ ] F2. Verify architecture-specific assets and reject ambiguous fallback assets.
-- [ ] F3. Validate expected repository signing-key fingerprints before trusting new apt sources.
-- [ ] F4. Use authenticated transport for package repositories.
-- [ ] F5. Add bounded network timeouts and a documented retry policy.
-- [ ] F6. Preserve working installations until replacement artifacts are downloaded, verified, and staged successfully.
+- [x] F1. Define verification requirements for each direct artifact and downloaded installer script.
+- [x] F2. Verify architecture-specific assets and reject ambiguous fallback assets.
+- [x] F3. Validate expected repository signing-key fingerprints before trusting new apt sources.
+- [x] F4. Use authenticated transport for package repositories.
+- [x] F5. Add bounded network timeouts and a documented retry policy.
+- [x] F6. Preserve working installations until replacement artifacts are downloaded, verified, and staged successfully.
 - [x] F7. Treat unavailable checksum tooling as a bootstrap failure unless the user explicitly chooses a documented reduced-assurance path.
-- [ ] F8. Add dependency vulnerability and license-policy checks appropriate for release gating.
+- [x] F8. Add dependency vulnerability and license-policy checks appropriate for release gating.
 
 ### Acceptance criteria
 
@@ -125,13 +125,13 @@
 
 - [x] G1. Make both Rust crates pass formatting and Clippy with warnings denied.
 - [~] G2. Add behavioral tests for `install all` applicability and exit status across modeled platforms.
-- [~] G3. Add tests for partial-install repair and prerequisite handling.
+- [x] G3. Add tests for partial-install repair and prerequisite handling.
 - [x] G4. Add failure-injection tests for config replacement, rollback, missing sources, duplicate targets, and concurrent startup checks.
-- [~] G5. Correct E2E distro expectations and require intended exit status plus intended outcome text.
+- [x] G5. Correct E2E distro expectations and require intended exit status plus intended outcome text.
 - [x] G6. Make E2E images source-aware so stale binaries cannot satisfy a new test run.
-- [~] G7. Ensure E2E resources are cleaned after success and failure.
+- [x] G7. Ensure E2E resources are cleaned after success and failure.
 - [~] G8. Classify existing ShellCheck findings and resolve all actionable errors in sourced or executed scripts.
-- [~] G9. Gate pull requests and release tags on Rust formatting, Rust lint, unit tests, shell validation, Bash/Zsh startup smoke tests, and the appropriate E2E tier.
+- [x] G9. Gate pull requests and release tags on Rust formatting, Rust lint, unit tests, shell validation, Bash/Zsh startup smoke tests, dependency policy, and the appropriate E2E tier.
 - [x] G10. Keep release publishing downstream of all required validation jobs.
 
 ### Acceptance criteria
@@ -172,9 +172,19 @@ config state, strict shell source propagation, daily-update retry semantics,
 Bash/Zsh smoke tests, source-fresh E2E image defaults, and CI/release validation.
 
 The local validation entry point is `tests/validate.sh`. At the end of this
-pass, both Rust crates passed formatting and Clippy with warnings denied, all
-237 main-crate tests passed, all E2E targets compiled, every shell script passed
-Bash and Zsh syntax parsing, and the startup smoke suite passed in both shells.
-Full distro E2E execution remains unverified because no Docker daemon was
-available. The uncompleted checklist items above remain requirements, not
-implicit follow-up claims.
+pass, the installer models complete and repairable state, verifies required
+postconditions, and handles platform prerequisites explicitly. Config writes
+are transactional, external targets require explicit authority, and source
+symlink escapes are rejected. Network artifacts now have a documented trust
+model, pinned repository keys and installer scripts, bounded retries, and staged
+replacement behavior. The dependency policy exposed and drove upgrades for
+active 2026 advisories in `anyhow`, `rustls-webpki`, and `tar`, and removal of
+the unmaintained `number_prefix` dependency.
+
+Both Rust crates pass formatting and Clippy with warnings denied, all 260
+main-crate tests pass, all E2E targets compile, and both dependency graphs pass
+the advisory/license/source policy. The default source-fresh E2E behavior tier
+is wired into CI and release workflows with cleanup on all exits; local distro
+execution and the opt-in full-install tier remain unverified because no Docker
+daemon was available. The uncompleted checklist items above remain explicit
+requirements, not implicit follow-up claims.

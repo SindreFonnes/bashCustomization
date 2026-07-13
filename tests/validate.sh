@@ -31,6 +31,14 @@ done < <(
 
 shellcheck \
     "$project_root/init.sh" \
+    "$project_root/main.sh" \
+    "$project_root/general_functions.sh" \
+    "$project_root/variables.sh" \
+    "$project_root/standard_settings.sh" \
+    "$project_root/installScripts/installMain.sh" \
+    "$project_root/installScripts/commonMyinstallFunctions.sh" \
+    "$project_root/tests/dependency-policy.sh" \
+    "$project_root/tests/e2e/run.sh" \
     "$project_root/tests/shell/smoke.sh" \
     "$project_root/tests/validate.sh"
 

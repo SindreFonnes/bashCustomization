@@ -9,34 +9,34 @@ script_check_args_exist () {
 }
 
 script_allready_installed () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "${@} is allready installed";
+    echo "$* is allready installed";
     echo "exiting...";
 
     return 0;
 }
 
 script_does_not_support_os () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "This script does not currently support installing ${@} for your os...";
-    echo "If you want to install ${@}, either do it manualy or update this script";
+    echo "This script does not currently support installing $* for your os...";
+    echo "If you want to install $*, either do it manualy or update this script";
     echo "exiting...";
 
     return 0;
 }
 
 script_success_message () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "Successfully installed ${@}!";
+    echo "Successfully installed $*!";
 
     return 0;
 }
@@ -48,12 +48,12 @@ script_check_if_allready_installed () {
 
     name=("${@:2}")
 
-    if ! script_check_args_exist ${name[@]}; then
+    if ! script_check_args_exist "${name[@]}"; then
         return 1;
     fi
 
-    if command -v $1 &> /dev/null; then
-        script_allready_installed ${name[@]};
+    if command -v "$1" &> /dev/null; then
+        script_allready_installed "${name[@]}";
         return 1;
     fi
 
@@ -68,7 +68,8 @@ ensure_brew_installed () {
         return 1;
     fi
     
-    local BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
+    local BREW_PREFIX
+    BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
     
     if [[ -z "${BREW_PREFIX}" ]]; then
         echo "Homebrew not found. Installing Homebrew..." >&2
@@ -141,6 +142,7 @@ is_ubuntu_debian () {
         return 1;
     fi
     
+    # shellcheck disable=SC1091
     . /etc/os-release
     if [[ "$ID" == "ubuntu" ]] || [[ "$ID_LIKE" == *"debian"* ]] || [[ "$ID" == "debian" ]]; then
         return 0;
@@ -150,15 +152,17 @@ is_ubuntu_debian () {
 }
 
 run_my_install () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    # Prefer bashc Rust binary when available
     if command -v bashc &> /dev/null; then
         bashc install "$@";
         return $?;
     fi
 
-    "$MYINSTALL_SCRIPT_LOCATION" "$@";
+    local project_root=${bashC:-"$HOME/bashCustomization"}
+    echo "bashc: the Rust binary is required for supported installs; run $project_root/init.sh or build $project_root/rust" >&2
+    echo "bashc: legacy installScripts are retained as reference material and are not a verified fallback" >&2
+    return 1
 }

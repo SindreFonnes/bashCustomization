@@ -68,6 +68,23 @@ pub fn exists(program: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Fail with a clear prerequisite diagnostic when a required executable is
+/// unavailable before an installer begins mutating the system.
+pub fn require(program: &str) -> Result<()> {
+    if exists(program) {
+        Ok(())
+    } else {
+        bail!("required command '{program}' is not available on PATH; install it and retry")
+    }
+}
+
+pub fn require_all(programs: &[&str]) -> Result<()> {
+    for program in programs {
+        require(program)?;
+    }
+    Ok(())
+}
+
 /// Check if the current process is running as root.
 pub fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }
@@ -92,5 +109,12 @@ mod tests {
 
         assert!(message.contains("captured-out"));
         assert!(message.contains("captured-err"));
+    }
+
+    #[test]
+    fn require_reports_missing_command_by_name() {
+        let name = "bashc-command-that-should-not-exist-9f8d3c";
+        let error = require(name).expect_err("invented command should be missing");
+        assert!(error.to_string().contains(name));
     }
 }

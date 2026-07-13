@@ -8,11 +8,16 @@ use dialoguer::Select;
 use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
-use crate::configs::manifest::{filter_by_name, load_manifest};
+use crate::configs::manifest::{
+    filter_by_name, load_manifest, validate_source_filesystem_containment,
+};
 use crate::configs::state::{
     SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
 };
-use crate::configs::{ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir};
+use crate::configs::{
+    ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir,
+    require_target_authority,
+};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -23,6 +28,7 @@ pub fn run_link(
     platform: &Platform,
     filter_name: Option<&str>,
     force: Option<Strategy>,
+    allow_outside_home: bool,
 ) -> Result<()> {
     let home_path = home_dir()?;
 
@@ -59,6 +65,11 @@ pub fn run_link(
             .collect();
         bail!("Source file(s) not found:\n  {}", paths.join("\n  "));
     }
+
+    for entry in &entries {
+        validate_source_filesystem_containment(&entry.source, project_root)?;
+    }
+    require_target_authority(&entries, &home_path, allow_outside_home)?;
 
     write_link(
         &mut std::io::stdout(),

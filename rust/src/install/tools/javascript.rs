@@ -1,9 +1,15 @@
 use anyhow::Result;
 
-use crate::common::{self, command, package_manager, platform::Platform};
-use crate::install::InstallConfig;
+use crate::common::{self, command, download, package_manager, platform::Platform};
+use crate::install::{InstallConfig, InstallationState, state_from_components};
 
 const NVM_INSTALL_VERSION: &str = "v0.40.1";
+const NVM_INSTALL_SHA256: &str = "abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53";
+const PNPM_INSTALL_URL: &str = "https://get.pnpm.io/install.sh";
+const PNPM_INSTALL_SHA256: &str =
+    "ab8b2166653269b1182ae8ae03801b6c651fae56a0ca9e011d5d5d5aac0f056b";
+const BUN_INSTALL_URL: &str = "https://bun.sh/install";
+const BUN_INSTALL_SHA256: &str = "bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd";
 
 #[derive(Debug, Clone, Copy)]
 pub struct JavaScriptInstaller;
@@ -19,16 +25,16 @@ impl crate::install::Installer for JavaScriptInstaller {
         false
     }
 
-    fn is_installed(&self) -> bool {
-        // Consider installed if nvm.sh exists (the base dependency).
-        // Check $NVM_DIR first, fall back to $HOME/.nvm.
-        if let Ok(nvm_dir) = std::env::var("NVM_DIR") {
-            return std::path::Path::new(&nvm_dir).join("nvm.sh").exists();
-        }
+    fn requires_brew(&self, _platform: &Platform) -> bool {
+        false
+    }
 
-        common::home_dir()
-            .map(|home| home.join(".nvm").join("nvm.sh").exists())
-            .unwrap_or(false)
+    fn is_installed(&self) -> bool {
+        missing_javascript_components().is_empty()
+    }
+
+    fn installation_state(&self, _platform: &Platform) -> InstallationState {
+        javascript_installation_state()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -37,10 +43,11 @@ impl crate::install::Installer for JavaScriptInstaller {
             return Ok(());
         }
 
+        command::require_all(&["bash", "curl"])?;
         install_nvm()?;
         install_pnpm()?;
         install_bun()?;
-        install_yarn(config)?;
+        install_yarn()?;
 
         println!("JavaScript toolchain installed (nvm, pnpm, bun, yarn)");
         Ok(())
@@ -52,32 +59,32 @@ impl crate::install::Installer for JavaScriptInstaller {
 }
 
 fn install_nvm() -> Result<()> {
-    let nvm_sh = common::home_dir()?.join(".nvm").join("nvm.sh");
-    if command::exists("nvm") || nvm_sh.exists() {
-        println!("nvm already installed, skipping...");
-        return Ok(());
+    if !nvm_shell_exists() {
+        println!("Installing nvm...");
+        let install_url = format!(
+            "https://raw.githubusercontent.com/nvm-sh/nvm/{NVM_INSTALL_VERSION}/install.sh"
+        );
+        download::run_verified_script(&install_url, NVM_INSTALL_SHA256, "bash", &[], &[])?;
+    } else {
+        println!("nvm already installed, checking Node.js...");
     }
 
-    println!("Installing nvm...");
-    let install_url =
-        format!("https://raw.githubusercontent.com/nvm-sh/nvm/{NVM_INSTALL_VERSION}/install.sh");
-    command::run_visible("bash", &["-c", &format!("curl -fsSL {install_url} | bash")])?;
-
-    // Source nvm and install latest LTS node
-    println!("Installing latest Node.js LTS via nvm...");
-    command::run_visible(
-        "bash",
-        &[
-            "-c",
-            r#"export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm install --lts"#,
-        ],
-    )?;
+    if !nvm_command_exists("node") {
+        println!("Installing latest Node.js LTS via nvm...");
+        command::run_visible(
+            "bash",
+            &[
+                "-c",
+                r#"export NVM_DIR="${NVM_DIR:-$HOME/.nvm}" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm install --lts"#,
+            ],
+        )?;
+    }
 
     Ok(())
 }
 
 fn install_pnpm() -> Result<()> {
-    if command::exists("pnpm") {
+    if pnpm_exists() {
         println!("pnpm already installed, skipping...");
         return Ok(());
     }
@@ -87,24 +94,21 @@ fn install_pnpm() -> Result<()> {
         return command::run_visible("corepack", &["enable", "pnpm"]);
     }
 
-    command::run_visible(
-        "bash",
-        &["-c", "curl -fsSL https://get.pnpm.io/install.sh | sh -"],
-    )
+    download::run_verified_script(PNPM_INSTALL_URL, PNPM_INSTALL_SHA256, "sh", &[], &[])
 }
 
 fn install_bun() -> Result<()> {
-    if command::exists("bun") {
+    if bun_exists() {
         println!("bun already installed, skipping...");
         return Ok(());
     }
 
     println!("Installing bun...");
-    command::run_visible("bash", &["-c", "curl -fsSL https://bun.sh/install | bash"])
+    download::run_verified_script(BUN_INSTALL_URL, BUN_INSTALL_SHA256, "bash", &[], &[])
 }
 
-fn install_yarn(config: &InstallConfig) -> Result<()> {
-    if command::exists("yarn") {
+fn install_yarn() -> Result<()> {
+    if yarn_exists() {
         println!("yarn already installed, skipping...");
         return Ok(());
     }
@@ -114,19 +118,109 @@ fn install_yarn(config: &InstallConfig) -> Result<()> {
         return package_manager::brew_install("yarn");
     }
 
-    if config.platform.is_linux() {
-        println!("Installing yarn via npm...");
-        // Use npm from nvm to install yarn globally
-        command::run_visible(
-            "bash",
-            &[
-                "-c",
-                r#"export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && npm install -g yarn"#,
-            ],
-        )?;
-    }
+    println!("Installing yarn via npm from nvm...");
+    command::run_visible(
+        "bash",
+        &[
+            "-c",
+            r#"export NVM_DIR="${NVM_DIR:-$HOME/.nvm}" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && npm install -g yarn"#,
+        ],
+    )?;
 
     Ok(())
+}
+
+fn nvm_dir() -> Option<std::path::PathBuf> {
+    std::env::var("NVM_DIR")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| common::home_dir().ok().map(|home| home.join(".nvm")))
+}
+
+fn nvm_shell_exists() -> bool {
+    nvm_dir()
+        .map(|directory| directory.join("nvm.sh").is_file())
+        .unwrap_or(false)
+}
+
+fn nvm_command_exists(name: &str) -> bool {
+    if command::exists(name) {
+        return true;
+    }
+
+    let Some(versions_dir) = nvm_dir().map(|directory| directory.join("versions/node")) else {
+        return false;
+    };
+    let Ok(versions) = std::fs::read_dir(versions_dir) else {
+        return false;
+    };
+
+    versions
+        .flatten()
+        .any(|version| version.path().join("bin").join(name).is_file())
+}
+
+fn user_file_exists(relative_paths: &[&str]) -> bool {
+    let Ok(home) = common::home_dir() else {
+        return false;
+    };
+    relative_paths.iter().any(|path| home.join(path).is_file())
+}
+
+fn pnpm_exists() -> bool {
+    command::exists("pnpm")
+        || std::env::var("PNPM_HOME")
+            .ok()
+            .map(|home| std::path::Path::new(&home).join("pnpm").is_file())
+            .unwrap_or(false)
+        || user_file_exists(&[".local/share/pnpm/pnpm", ".local/bin/pnpm"])
+}
+
+fn bun_exists() -> bool {
+    command::exists("bun")
+        || std::env::var("BUN_INSTALL")
+            .ok()
+            .map(|home| std::path::Path::new(&home).join("bin/bun").is_file())
+            .unwrap_or(false)
+        || user_file_exists(&[".bun/bin/bun"])
+}
+
+fn yarn_exists() -> bool {
+    nvm_command_exists("yarn") || user_file_exists(&[".yarn/bin/yarn", ".local/bin/yarn"])
+}
+
+fn missing_javascript_components() -> Vec<&'static str> {
+    [
+        ("nvm", nvm_shell_exists()),
+        ("node", nvm_command_exists("node")),
+        ("pnpm", pnpm_exists()),
+        ("bun", bun_exists()),
+        ("yarn", yarn_exists()),
+    ]
+    .into_iter()
+    .filter_map(|(name, exists)| (!exists).then_some(name))
+    .collect()
+}
+
+fn javascript_installation_state() -> InstallationState {
+    classify_javascript_components([
+        nvm_shell_exists(),
+        nvm_command_exists("node"),
+        pnpm_exists(),
+        bun_exists(),
+        yarn_exists(),
+    ])
+}
+
+fn classify_javascript_components(present: [bool; 5]) -> InstallationState {
+    state_from_components(&[
+        ("nvm", present[0]),
+        ("node", present[1]),
+        ("pnpm", present[2]),
+        ("bun", present[3]),
+        ("yarn", present[4]),
+    ])
 }
 
 #[cfg(test)]
@@ -161,5 +255,14 @@ mod tests {
                 "needs_sudo should be false for {p}"
             );
         }
+    }
+
+    #[test]
+    fn partial_toolchain_is_incomplete_and_names_missing_components() {
+        let state = classify_javascript_components([true, true, false, true, false]);
+        assert_eq!(
+            state,
+            InstallationState::Incomplete("missing pnpm, yarn".to_string())
+        );
     }
 }

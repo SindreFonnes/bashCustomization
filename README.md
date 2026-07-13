@@ -11,6 +11,11 @@ for the shell framework. See the [current support matrix](docs/support.md) and
 the [2026-07-13 implementation review](docs/reviews/2026-07-13-bashc-rust-port-review.md)
 before relying on it for unattended fresh-machine setup.
 
+The supported installer entry point is `bashc install`. The shell files under
+`installScripts/` remain as readable migration/reference material, but are not
+used as a fallback when the binary is missing because their older download and
+platform assumptions do not meet the current installer safeguards.
+
 ## Load an existing checkout
 
 The repository defaults to `$HOME/bashCustomization`. Set `BASHC_ROOT` when the
@@ -55,6 +60,12 @@ Use `--verbose` on install commands to stream full subprocess output. Config
 targets and strategies are declared in `configs/manifest.toml`; review status
 and diffs before forcing conflict resolution.
 
+Config link and unlink operations are limited to targets within the current
+home directory by default. Deliberate external targets require
+`--allow-outside-home` on that invocation and are never changed by the automatic
+startup check. See [configs/README.md](configs/README.md) for the source and
+target containment rules.
+
 ### Config backup and rollback behavior
 
 - `replace` moves the current target to `<target>.bak` and creates the link. If
@@ -88,6 +99,15 @@ tests/validate.sh
 This checks both Rust crates, validates every `.sh` file with Bash and Zsh,
 runs focused ShellCheck gates, and exercises isolated startup/update smoke
 tests. Full distro E2E tests additionally require a running Docker daemon.
+Run `tests/e2e/run.sh` for the source-fresh, non-destructive distro behavior
+tier used by CI and releases. Add `--features full-install-tests` to include
+the slower package-install suites. The runner removes its containers, images,
+and extracted binary on both success and failure unless
+`KEEP_E2E_RESOURCES=1` is set.
+The network artifact trust model and pinned-script update procedure are
+documented in [artifact verification](docs/security/artifact-verification.md).
+Run `tests/dependency-policy.sh` with `cargo-deny` installed to reproduce the
+advisory, license, crate-ban, and source policy that also gates CI and releases.
 
 ## Recovery
 

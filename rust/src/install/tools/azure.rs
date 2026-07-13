@@ -6,6 +6,8 @@ use crate::common::{
 };
 use crate::install::InstallConfig;
 
+const MICROSOFT_APT_KEY_FINGERPRINTS: &[&str] = &["BC528686B50D79E339D3721CEB3E94ADBE1229CF"];
+
 #[derive(Debug, Clone, Copy)]
 pub struct AzureInstaller;
 
@@ -20,6 +22,14 @@ impl crate::install::Installer for AzureInstaller {
 
     fn is_installed(&self) -> bool {
         command::exists("az")
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_fedora()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -56,6 +66,7 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://packages.microsoft.com/keys/microsoft.asc",
         "/etc/apt/keyrings/microsoft.gpg",
+        MICROSOFT_APT_KEY_FINGERPRINTS,
     )?;
 
     let dpkg_arch = platform.go_arch();

@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use std::collections::BTreeSet;
+
 use anyhow::{Context, Result, bail};
 
 use super::command;
@@ -8,6 +10,11 @@ use super::platform::{Distro, Platform};
 use super::privilege;
 
 static BREW_FAILED: AtomicBool = AtomicBool::new(false);
+
+const HOMEBREW_INSTALL_URL: &str =
+    "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
+const HOMEBREW_INSTALL_SHA256: &str =
+    "99287f194a8b3c9e6b0203a11a5fa54518be57209343e6bb954dec4635796d9d";
 
 /// Mark brew as failed for the remainder of this run.
 pub fn set_brew_failed() {
@@ -54,15 +61,16 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     }
 
     println!("Installing Homebrew...");
+    command::require_all(&["bash", "curl"])
+        .context("Homebrew bootstrap prerequisites are not satisfied")?;
 
     if platform.is_mac() {
-        // Official Homebrew installer
-        let result = command::run_visible(
-            "bash",
-            &[
-                "-c",
-                "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-            ],
+        let result = download::run_verified_script(
+            HOMEBREW_INSTALL_URL,
+            HOMEBREW_INSTALL_SHA256,
+            "env",
+            &["NONINTERACTIVE=1", "/bin/bash"],
+            &[],
         );
 
         if result.is_err() {
@@ -79,12 +87,12 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
             apply_shellenv(&shellenv);
         }
     } else if platform.is_linux() {
-        let result = command::run_visible(
-            "bash",
-            &[
-                "-c",
-                "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-            ],
+        let result = download::run_verified_script(
+            HOMEBREW_INSTALL_URL,
+            HOMEBREW_INSTALL_SHA256,
+            "env",
+            &["NONINTERACTIVE=1", "/bin/bash"],
+            &[],
         );
 
         if result.is_err() {
@@ -235,23 +243,37 @@ pub fn apt_install(package: &str) -> Result<()> {
     privilege::run_privileged("apt-get", &["install", "-y", package])
 }
 
-/// Download a GPG key and install it for apt.
-pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
+/// Download a GPG key, verify its primary-key fingerprints, and install it for apt.
+///
+/// Requiring the complete expected primary-key set prevents a compromised download
+/// location from silently replacing the repository key or appending another trusted
+/// primary key to the installed keyring.
+pub fn apt_add_gpg_key(
+    url: &str,
+    keyring_path: &str,
+    expected_primary_fingerprints: &[&str],
+) -> Result<()> {
+    if expected_primary_fingerprints.is_empty() {
+        bail!("at least one expected GPG primary-key fingerprint is required")
+    }
+
     let temp_dir = tempfile::tempdir().context("creating temporary directory for apt key")?;
     let key_path = temp_dir.path().join("repo-key");
 
+    if !command::exists("gpg") {
+        privilege::run_privileged("apt-get", &["update", "-qq"])?;
+        privilege::run_privileged("apt-get", &["install", "-y", "-qq", "gnupg"])?;
+    }
+
     if url.ends_with(".gpg") {
         download::download_file(url, &key_path)?;
+        verify_gpg_primary_fingerprints(&key_path, expected_primary_fingerprints)?;
         install_apt_file(&key_path, keyring_path)
     } else {
-        if !command::exists("gpg") {
-            privilege::run_privileged("apt-get", &["update", "-qq"])?;
-            privilege::run_privileged("apt-get", &["install", "-y", "-qq", "gnupg"])?;
-        }
-
         let armored_path = temp_dir.path().join("repo-key.asc");
         let dearmored_path = temp_dir.path().join("repo-key.gpg");
         download::download_file(url, &armored_path)?;
+        verify_gpg_primary_fingerprints(&armored_path, expected_primary_fingerprints)?;
 
         command::run_visible(
             "gpg",
@@ -265,6 +287,82 @@ pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
 
         install_apt_file(&dearmored_path, keyring_path)
     }
+}
+
+fn verify_gpg_primary_fingerprints(
+    key_path: &std::path::Path,
+    expected_primary_fingerprints: &[&str],
+) -> Result<()> {
+    let output = command::run(
+        "gpg",
+        &[
+            "--batch",
+            "--show-keys",
+            "--with-colons",
+            path_arg(key_path)?,
+        ],
+    )
+    .with_context(|| format!("inspecting downloaded GPG key {}", key_path.display()))?;
+
+    let actual = primary_fingerprints_from_gpg_colons(&output)?;
+    let expected = expected_primary_fingerprints
+        .iter()
+        .map(|fingerprint| normalize_fingerprint(fingerprint))
+        .collect::<Result<BTreeSet<_>>>()?;
+
+    if actual != expected {
+        bail!(
+            "downloaded GPG primary-key fingerprint mismatch for {}:\n  expected: {}\n  actual:   {}",
+            key_path.display(),
+            expected.iter().cloned().collect::<Vec<_>>().join(", "),
+            actual.iter().cloned().collect::<Vec<_>>().join(", ")
+        )
+    }
+
+    Ok(())
+}
+
+fn primary_fingerprints_from_gpg_colons(output: &str) -> Result<BTreeSet<String>> {
+    let mut fingerprints = BTreeSet::new();
+    let mut awaiting_primary_fingerprint = false;
+
+    for line in output.lines() {
+        let fields = line.split(':').collect::<Vec<_>>();
+        match fields.first().copied() {
+            Some("pub") => awaiting_primary_fingerprint = true,
+            Some("sub") => awaiting_primary_fingerprint = false,
+            Some("fpr") if awaiting_primary_fingerprint => {
+                let fingerprint = fields.get(9).copied().unwrap_or_default();
+                fingerprints.insert(normalize_fingerprint(fingerprint)?);
+                awaiting_primary_fingerprint = false;
+            }
+            _ => {}
+        }
+    }
+
+    if fingerprints.is_empty() {
+        bail!("downloaded file did not contain a GPG primary-key fingerprint")
+    }
+
+    Ok(fingerprints)
+}
+
+fn normalize_fingerprint(fingerprint: &str) -> Result<String> {
+    let normalized = fingerprint
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+
+    if normalized.len() != 40
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        bail!("invalid GPG fingerprint: {fingerprint}")
+    }
+
+    Ok(normalized)
 }
 
 /// Add an apt repository source file and run apt update.
@@ -696,5 +794,39 @@ mod tests {
     #[test]
     fn gpg_url_bare_needs_dearmor() {
         assert!(!"https://download.docker.com/linux/ubuntu/gpg".ends_with(".gpg"));
+    }
+
+    #[test]
+    fn extracts_only_primary_fingerprints_from_gpg_colons() {
+        let output = concat!(
+            "pub:-:4096:1:23F3D4EA75716059:0:0::-:::scESC::::::23::0:\n",
+            "fpr:::::::::2C6106201985B60E6C7AC87323F3D4EA75716059:\n",
+            "sub:-:4096:1:E5FAF19590714157:0:0:::::e::::::23:\n",
+            "fpr:::::::::5700BAB26C8DE75F3EE323FEE5FAF19590714157:\n",
+            "pub:-:4096:1:5612B36462313325:0:0::-:::scESC::::::23::0:\n",
+            "fpr:::::::::7F38BBB59D064DBCB3D84D725612B36462313325:\n",
+        );
+
+        let fingerprints = primary_fingerprints_from_gpg_colons(output).unwrap();
+        assert_eq!(
+            fingerprints,
+            BTreeSet::from([
+                "2C6106201985B60E6C7AC87323F3D4EA75716059".to_string(),
+                "7F38BBB59D064DBCB3D84D725612B36462313325".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn fingerprint_normalization_accepts_grouped_upper_or_lowercase_hex() {
+        assert_eq!(
+            normalize_fingerprint("bc52 8686 b50d 79e3 39d3 721c eb3e 94ad be12 29cf").unwrap(),
+            "BC528686B50D79E339D3721CEB3E94ADBE1229CF"
+        );
+    }
+
+    #[test]
+    fn fingerprint_normalization_rejects_short_values() {
+        assert!(normalize_fingerprint("BE1229CF").is_err());
     }
 }

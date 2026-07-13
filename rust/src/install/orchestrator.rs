@@ -1,7 +1,8 @@
 use anyhow::{Result, bail};
 
 use super::{
-    ALL_TOOLS, InstallConfig, InstallOutcome, Installer, Tool, available_tool_names, find_tool,
+    ALL_TOOLS, InstallConfig, InstallOutcome, InstallationState, Installer, Tool,
+    available_tool_names, find_tool,
 };
 
 /// Run a single installer by name.
@@ -34,6 +35,10 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
 
 /// Run a single installer with pre-flight checks.
 fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
+    run_installer(tool, config)
+}
+
+fn run_installer(tool: &dyn Installer, config: &InstallConfig) -> InstallOutcome {
     if !tool.is_applicable(&config.platform) {
         return InstallOutcome::NotApplicable(format!("not applicable on {}", config.platform));
     }
@@ -60,8 +65,24 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
         };
     }
 
-    if tool.is_installed() {
-        return InstallOutcome::Skipped("already installed".to_string());
+    let state_before = tool.installation_state(&config.platform);
+    match &state_before {
+        InstallationState::Complete => {
+            return InstallOutcome::Skipped("already complete".to_string());
+        }
+        InstallationState::Incomplete(reason) => {
+            println!("\n--- Repairing {} ({reason}) ---", tool.name());
+        }
+        InstallationState::Missing => {}
+    }
+
+    if tool.requires_brew(&config.platform)
+        && !crate::common::package_manager::has_brew()
+        && let Err(error) = crate::common::package_manager::ensure_brew(&config.platform)
+    {
+        return InstallOutcome::Failed(format!(
+            "Homebrew prerequisite could not be satisfied: {error:#}"
+        ));
     }
 
     if tool.needs_sudo(&config.platform)
@@ -74,9 +95,20 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
         ));
     }
 
-    println!("\n--- Installing {} ---", tool.name());
+    if matches!(state_before, InstallationState::Missing) {
+        println!("\n--- Installing {} ---", tool.name());
+    }
     match tool.install(config) {
-        Ok(()) => InstallOutcome::Installed,
+        Ok(()) => match tool.verify_installation(&config.platform) {
+            Ok(()) => match state_before {
+                InstallationState::Incomplete(reason) => InstallOutcome::Repaired(reason),
+                InstallationState::Missing => InstallOutcome::Installed,
+                InstallationState::Complete => unreachable!("complete tools return before install"),
+            },
+            Err(e) => InstallOutcome::Failed(format!(
+                "installer returned success but verification failed: {e:#}"
+            )),
+        },
         Err(e) => InstallOutcome::Failed(format!("{e:#}")),
     }
 }
@@ -89,6 +121,10 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
             .iter()
             .filter(|t| {
                 t.include_in_all(&config.platform)
+                    && !matches!(
+                        t.installation_state(&config.platform),
+                        InstallationState::Complete
+                    )
                     && t.needs_sudo(&config.platform)
                     && !crate::common::command::is_root()
                     && !crate::common::privilege::has_path_escalator()
@@ -101,29 +137,6 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
                 "The following tools require root privileges and no sudo/doas/su was found: {}\nInstall sudo/doas or re-run as root",
                 needs_sudo.join(", ")
             );
-        }
-    }
-
-    // Pre-flight: bootstrap doas on Alpine when running as root with no escalator
-    //
-    // On a fresh Alpine install there is no sudo/doas/su, so tools that rely on
-    // privilege escalation would fail later. If we are already root we can
-    // install doas right now (best-effort — if it fails we warn and continue;
-    // tools that need escalation will produce their own clear error messages).
-    if !config.dry_run
-        && crate::common::command::is_root()
-        && !crate::common::privilege::has_path_escalator()
-        && config.platform.is_alpine()
-    {
-        println!("=== Pre-flight: bootstrapping doas on Alpine ===");
-        if let Some(doas_tool) = find_tool("doas") {
-            match doas_tool.install(config) {
-                Ok(()) => println!("doas bootstrapped successfully."),
-                Err(e) => println!(
-                    "Warning: doas bootstrap failed ({e:#}). \
-                    Tools requiring privilege escalation may fail."
-                ),
-            }
         }
     }
 
@@ -228,6 +241,7 @@ pub fn run_interactive(config: &InstallConfig) -> Result<()> {
 fn print_single_outcome(name: &str, outcome: &InstallOutcome) {
     match outcome {
         InstallOutcome::Installed => println!("✓ {name} installed successfully"),
+        InstallOutcome::Repaired(reason) => println!("✓ {name} repaired ({reason})"),
         InstallOutcome::Skipped(reason) => println!("- {name} skipped ({reason})"),
         InstallOutcome::NotApplicable(reason) => {
             println!("- {name} not applicable ({reason})")
@@ -247,6 +261,10 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::Skipped(_)))
         .collect();
+    let repaired: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Repaired(_)))
+        .collect();
     let not_applicable: Vec<_> = results
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::NotApplicable(_)))
@@ -264,9 +282,13 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         .filter(|(_, o)| matches!(o, InstallOutcome::Failed(_)))
         .collect();
 
-    let applicable =
-        installed.len() + skipped.len() + guidance.len() + planned.len() + failed.len();
-    let completed = installed.len() + skipped.len() + guidance.len();
+    let applicable = installed.len()
+        + repaired.len()
+        + skipped.len()
+        + guidance.len()
+        + planned.len()
+        + failed.len();
+    let completed = installed.len() + repaired.len() + skipped.len() + guidance.len();
 
     println!("\n{}", "=".repeat(50));
     if !planned.is_empty() {
@@ -291,6 +313,16 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         println!("Skipped:");
         for (name, outcome) in &skipped {
             if let InstallOutcome::Skipped(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !repaired.is_empty() {
+        println!("Repaired:");
+        for (name, outcome) in &repaired {
+            if let InstallOutcome::Repaired(reason) = outcome {
                 println!("  {name} — {reason}");
             }
         }
@@ -355,6 +387,51 @@ fn bail_if_failed(results: &[(String, InstallOutcome)]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::common::platform::{Arch, Distro, Os, Platform};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FakeInstaller {
+        state: Mutex<InstallationState>,
+        state_after_install: InstallationState,
+        install_calls: AtomicUsize,
+    }
+
+    impl FakeInstaller {
+        fn new(state: InstallationState, state_after_install: InstallationState) -> Self {
+            Self {
+                state: Mutex::new(state),
+                state_after_install,
+                install_calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Installer for FakeInstaller {
+        fn name(&self) -> &str {
+            "fake"
+        }
+
+        fn needs_sudo(&self, _platform: &Platform) -> bool {
+            false
+        }
+
+        fn is_installed(&self) -> bool {
+            matches!(
+                *self.state.lock().expect("state lock poisoned"),
+                InstallationState::Complete
+            )
+        }
+
+        fn installation_state(&self, _platform: &Platform) -> InstallationState {
+            self.state.lock().expect("state lock poisoned").clone()
+        }
+
+        fn install(&self, _config: &InstallConfig) -> Result<()> {
+            self.install_calls.fetch_add(1, Ordering::SeqCst);
+            *self.state.lock().expect("state lock poisoned") = self.state_after_install.clone();
+            Ok(())
+        }
+    }
 
     fn test_config(dry_run: bool) -> InstallConfig {
         InstallConfig {
@@ -387,20 +464,43 @@ mod tests {
     }
 
     #[test]
-    fn run_one_skips_installed_tool() {
-        // Go is likely not installed in the test env, but if it is, it should skip
+    fn complete_installer_is_skipped_without_running() {
         let config = test_config(false);
-        for &tool in ALL_TOOLS {
-            if tool.is_installed() {
-                let outcome = run_one(&tool, &config);
-                assert!(
-                    matches!(outcome, InstallOutcome::Skipped(_)),
-                    "installed tool {} should be skipped",
-                    tool.name()
-                );
-                break;
-            }
-        }
+        let installer =
+            FakeInstaller::new(InstallationState::Complete, InstallationState::Complete);
+
+        let outcome = run_installer(&installer, &config);
+
+        assert!(matches!(outcome, InstallOutcome::Skipped(_)));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn incomplete_installer_is_repaired_and_reported_separately() {
+        let config = test_config(false);
+        let installer = FakeInstaller::new(
+            InstallationState::Incomplete("missing companion".to_string()),
+            InstallationState::Complete,
+        );
+
+        let outcome = run_installer(&installer, &config);
+
+        assert!(matches!(outcome, InstallOutcome::Repaired(_)));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn successful_command_with_missing_postcondition_is_failed() {
+        let config = test_config(false);
+        let installer = FakeInstaller::new(InstallationState::Missing, InstallationState::Missing);
+
+        let outcome = run_installer(&installer, &config);
+
+        let InstallOutcome::Failed(reason) = outcome else {
+            panic!("missing postcondition must produce a failed outcome");
+        };
+        assert!(reason.contains("verification failed"));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -478,5 +578,72 @@ mod tests {
             msg.contains("docker"),
             "error should name failed tool: {msg}"
         );
+    }
+
+    #[test]
+    fn not_applicable_and_guidance_outcomes_do_not_fail_an_all_run() {
+        let results = vec![
+            (
+                "doas".to_string(),
+                InstallOutcome::NotApplicable("not needed".to_string()),
+            ),
+            (
+                "docker".to_string(),
+                InstallOutcome::Guidance("declarative configuration".to_string()),
+            ),
+            ("ripgrep".to_string(), InstallOutcome::Installed),
+        ];
+
+        assert!(bail_if_failed(&results).is_ok());
+    }
+
+    #[test]
+    fn dry_run_install_all_succeeds_across_modeled_platforms() {
+        let platforms = [
+            Platform {
+                os: Os::MacOs,
+                arch: Arch::Aarch64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Debian),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Ubuntu),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Wsl(Distro::Ubuntu),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Fedora),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Arch),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Alpine),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
+        ];
+
+        for platform in platforms {
+            let display = platform.to_string();
+            let config = InstallConfig {
+                platform,
+                dry_run: true,
+            };
+            assert!(
+                run_all(&config).is_ok(),
+                "dry-run install all should succeed for {display}"
+            );
+        }
     }
 }

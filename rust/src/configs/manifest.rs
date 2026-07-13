@@ -221,6 +221,44 @@ fn validate_absolute_target(target: &Path, raw_target: &str, name: &str) -> Resu
         );
     }
 
+    if target
+        .components()
+        .any(|component| matches!(component, Component::ParentDir))
+    {
+        anyhow::bail!(
+            "Invalid target for config '{}': target must not contain '..': {}",
+            name,
+            raw_target
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate an existing source against the real filesystem, following
+/// symlinks. Callers use this immediately before an operation could create or
+/// replace a target.
+pub(crate) fn validate_source_filesystem_containment(
+    source: &Path,
+    project_root: &Path,
+) -> Result<()> {
+    let configs_dir = std::fs::canonicalize(project_root.join("configs")).with_context(|| {
+        format!(
+            "Failed to resolve configs directory under {}",
+            project_root.display()
+        )
+    })?;
+    let resolved_source = std::fs::canonicalize(source)
+        .with_context(|| format!("Failed to resolve config source {}", source.display()))?;
+
+    if !resolved_source.starts_with(&configs_dir) {
+        anyhow::bail!(
+            "Config source {} resolves outside the repository configs directory (resolved to {})",
+            source.display(),
+            resolved_source.display()
+        );
+    }
+
     Ok(())
 }
 
@@ -580,6 +618,36 @@ target = ".config/bad"
             msg.contains("target must be absolute"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn target_with_parent_traversal_is_rejected() {
+        let toml = r#"
+[[config]]
+name = "bad"
+source = "bad/config"
+target = "~/.config/../outside"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("parent traversal in targets must be rejected");
+        assert!(err.to_string().contains("must not contain '..'"));
+    }
+
+    #[test]
+    fn filesystem_source_symlink_escape_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let configs = root.path().join("configs");
+        let outside = root.path().join("outside.txt");
+        std::fs::create_dir_all(&configs).unwrap();
+        std::fs::write(&outside, "external").unwrap();
+        let source = configs.join("escaped.txt");
+        symlink(&outside, &source).unwrap();
+
+        let err = validate_source_filesystem_containment(&source, root.path())
+            .expect_err("source symlinks must not escape configs");
+        assert!(err.to_string().contains("resolves outside"));
     }
 
     #[test]

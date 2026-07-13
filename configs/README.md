@@ -57,6 +57,21 @@ The `platform` field is optional. Entries without it apply on all platforms.
 
 The command exits 0 in all non-fatal cases, including when unresolved drift exists, so that a startup warning never breaks the shell. Use `bashc configs status` for a read-only inspection of all entries at any time.
 
+Automatic startup checks never modify targets outside the current user's home directory. They also skip entries whose repository source resolves outside `configs/` through a symlink and print an actionable warning for either case.
+
+## Target and source boundaries
+
+Manifest sources must be relative paths contained by `configs/` both lexically and after filesystem symlinks are resolved. A source symlink that escapes the directory is rejected before any target is changed.
+
+`bashc configs link` and `bashc configs unlink` authorize targets inside the current user's home directory by default. The home directory itself and paths that resolve outside it through a symlinked parent are rejected. A deliberately external target requires the explicit flag on that invocation:
+
+```sh
+bashc configs link system-tool --allow-outside-home
+bashc configs unlink system-tool --allow-outside-home
+```
+
+The flag is an authority acknowledgement, not privilege escalation; normal filesystem permissions still apply. Inspect `bashc configs status` and the manifest entry before granting it. The non-interactive startup check never grants this authority.
+
 ## When `bashc configs check` runs
 
 `bashc_check_configs` in `general_functions.sh` invokes `bashc configs check` on every interactive shell startup, after modules are loaded. It is skipped automatically for non-interactive shells.

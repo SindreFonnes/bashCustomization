@@ -31,6 +31,10 @@ impl crate::install::Installer for DoasInstaller {
             && !crate::common::privilege::has_path_escalator()
     }
 
+    fn requires_brew(&self, _platform: &Platform) -> bool {
+        false
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 

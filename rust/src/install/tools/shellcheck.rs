@@ -19,6 +19,14 @@ impl crate::install::Installer for ShellcheckInstaller {
         command::exists("shellcheck")
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform) || platform.is_debian() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_fedora()
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {

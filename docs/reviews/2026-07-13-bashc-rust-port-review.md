@@ -1,5 +1,12 @@
 # bashc Rust Port Review
 
+> **Remediation note (2026-07-13):** This document records the reviewed
+> baseline and is intentionally not rewritten to erase the findings. Many
+> safeguards and orchestration findings were addressed later the same day. The
+> current implementation checklist and remaining clean-host evidence are in
+> `docs/plans/2026-07-13-bashc-rust-port-remediation.md` and
+> `docs/support.md`.
+
 **Date:** 2026-07-13  
 **Status:** Complete  
 **Scope:** The Rust `bashc` implementation, its integration with the shell framework, the migration specifications and plans, bootstrap and release paths, configuration management, tests, portability, maintainability, and operational safeguards.

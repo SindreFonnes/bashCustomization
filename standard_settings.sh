@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Standard settings
 PROMPT_DIRTRIM=3;
 
@@ -7,6 +8,8 @@ PROMPT_DIRTRIM=3;
 
 
 if [[ $PROFILE_SHELL == "zsh" && -n "$ZSH" && -f "$ZSH/oh-my-zsh.sh" ]]; then
+    # Consumed by oh-my-zsh after this sourced settings file returns.
+    # shellcheck disable=SC2034
 	plugins=(
 		git
 		colored-man-pages
@@ -42,14 +45,38 @@ fi
 # ssh-add;
 
 # Exports
-if command -v "go" &> /dev/null; then
-	export PATH=$PATH:/usr/local/go/bin;
-	export GOPATH=$HOME/p/go;
-	export PATH=$PATH:$GOPATH/bin;
+_bashc_add_path_dir () {
+	[ -d "$1" ] || return 0
+	case ":$PATH:" in
+		*":$1:"*) ;;
+		*) PATH="$PATH:$1" ;;
+	esac
+	export PATH
+}
+
+_bashc_add_path_dir "/usr/local/go/bin"
+_bashc_add_path_dir "$HOME/.cargo/bin"
+_bashc_add_path_dir "$HOME/.local/bin"
+_bashc_add_path_dir "$HOME/.mybin"
+_bashc_add_path_dir "$HOME/.bun/bin"
+_bashc_add_path_dir "$HOME/.local/share/pnpm"
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+	_bashc_source_file "$NVM_DIR/nvm.sh" || return 1
 fi
 
-if [ -d "$HOME/.mybin" ]; then
-	export PATH=$PATH:$HOME/.mybin;
+if command -v brew >/dev/null 2>&1; then
+	_bashc_openjdk_prefix=$(brew --prefix openjdk 2>/dev/null) || _bashc_openjdk_prefix=""
+	if [ -n "$_bashc_openjdk_prefix" ]; then
+		_bashc_add_path_dir "$_bashc_openjdk_prefix/bin"
+	fi
+	unset _bashc_openjdk_prefix
+fi
+
+if command -v "go" >/dev/null 2>&1; then
+	export GOPATH="$HOME/p/go";
+	_bashc_add_path_dir "$GOPATH/bin"
 fi
 
 ## https://askubuntu.com/questions/22037/aliases-not-available-when-using-sudo

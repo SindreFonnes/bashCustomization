@@ -3,6 +3,8 @@ use anyhow::{Result, bail};
 use crate::common::{command, package_manager, platform::Platform};
 use crate::install::InstallConfig;
 
+const EZA_APT_KEY_FINGERPRINTS: &[&str] = &["1548BC8A4B4D2688F9B0DAF7EC29E2090CE3FD43"];
+
 #[derive(Debug, Clone, Copy)]
 pub struct EzaInstaller;
 
@@ -17,6 +19,14 @@ impl crate::install::Installer for EzaInstaller {
 
     fn is_installed(&self) -> bool {
         command::exists("eza")
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_fedora()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -53,10 +63,11 @@ fn install_eza_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://raw.githubusercontent.com/eza-community/eza/main/deb.asc",
         "/etc/apt/keyrings/gierens.gpg",
+        EZA_APT_KEY_FINGERPRINTS,
     )?;
 
     let repo_line =
-        "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main";
+        "deb [signed-by=/etc/apt/keyrings/gierens.gpg] https://deb.gierens.de stable main";
 
     println!("Adding eza apt repository...");
     package_manager::apt_add_repo(repo_line, "/etc/apt/sources.list.d/gierens.list")?;

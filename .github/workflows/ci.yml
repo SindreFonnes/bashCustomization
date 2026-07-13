@@ -10,6 +10,21 @@ permissions:
   contents: read
 
 jobs:
+  dependency-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check main crate advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: rust/Cargo.toml
+
+      - name: Check E2E crate advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: tests/e2e/Cargo.toml
+
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -25,3 +40,15 @@ jobs:
 
       - name: Run validation suite
         run: tests/validate.sh
+
+  e2e:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run source-fresh distro behavior tier
+        run: tests/e2e/run.sh

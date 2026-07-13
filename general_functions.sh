@@ -1,3 +1,6 @@
+# shellcheck shell=bash
+# Shared globals and dynamic module paths are consumed by subsequently sourced files.
+# shellcheck disable=SC2034,SC1090,SC2154
 # This function takes a string as the first parameter, and a second string as the second.
 # It then checks the first string for any occurance of the first string, and then returns the exit code of grep.
 check_param_for_string () {
@@ -18,7 +21,8 @@ determine_running_os () {
 	fi
 
 	# Check if it is running in wsl
-	local system_info="$(cat /proc/version | tr '[:upper:]' '[:lower:]')";
+	local system_info
+	system_info="$(tr '[:upper:]' '[:lower:]' < /proc/version)";
 	if [[ "$system_info" == *"wsl"* ]]; then
 		IS_WSL=true;
 	else
@@ -39,7 +43,7 @@ determine_running_shell () {
 	elif test -n "$PS3"; then
 		PROFILE_SHELL="unknown"
 	else
-		PROFILE_SHELL=sh
+		PROFILE_SHELL="sh"
 	fi
 }
 

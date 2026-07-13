@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::common::{package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
@@ -57,6 +57,13 @@ impl crate::install::Installer for BaseInstaller {
         Ok(())
     }
 
+    fn verify_installation(&self, _platform: &Platform) -> Result<()> {
+        // Base installation is an idempotent reconciliation of a package set.
+        // Each required package-manager command must succeed; there is no
+        // single executable whose presence represents the whole set.
+        Ok(())
+    }
+
     fn phase(&self) -> u8 {
         0 // base phase
     }
@@ -66,9 +73,8 @@ fn install_base_mac() -> Result<()> {
     println!("Installing base packages via brew...");
     let packages = ["git", "gnupg"];
     for pkg in &packages {
-        if let Err(e) = package_manager::brew_install(pkg) {
-            println!("  Warning: failed to install {pkg}: {e}");
-        }
+        package_manager::brew_install(pkg)
+            .with_context(|| format!("installing required base package {pkg}"))?;
     }
     Ok(())
 }
@@ -77,7 +83,8 @@ fn install_base_linux(platform: &Platform) -> Result<()> {
     // The universe repo is Ubuntu-specific; Debian has equivalent packages in main
     if platform.is_ubuntu() {
         println!("Adding universe repository...");
-        let _ = privilege::run_privileged("add-apt-repository", &["universe", "-y"]);
+        privilege::run_privileged("add-apt-repository", &["universe", "-y"])
+            .context("enabling required Ubuntu universe repository")?;
     }
 
     let packages = [

@@ -7,6 +7,12 @@ set -e
 REPO="sindre/bashCustomization"
 BINARY_NAME="bashc"
 
+curl_fetch() {
+    curl --fail --silent --show-error --location \
+        --connect-timeout 10 --max-time 120 \
+        --retry 2 --retry-delay 1 --retry-connrefused "$@"
+}
+
 # --- Platform detection ---
 
 detect_os() {
@@ -156,7 +162,7 @@ bootstrap_doas_alpine
 echo "Fetching latest release..."
 
 # Get the latest release download URL
-RELEASE_URL=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | \
+RELEASE_URL=$(curl_fetch "https://api.github.com/repos/${REPO}/releases/latest" | \
     grep "browser_download_url.*${BINARY_NAME}-${TARGET}\"" | \
     head -1 | \
     cut -d'"' -f4)
@@ -172,13 +178,20 @@ SHA_URL="${RELEASE_URL}.sha256"
 TMPDIR=$(mktemp -d)
 BINARY_PATH="${TMPDIR}/${BINARY_NAME}"
 SHA_PATH="${TMPDIR}/${BINARY_NAME}.sha256"
-trap 'rm -rf "$TMPDIR"' EXIT HUP INT TERM
+STAGED_BINARY=""
+cleanup() {
+    rm -rf "$TMPDIR"
+    if [ -n "$STAGED_BINARY" ]; then
+        rm -f "$STAGED_BINARY"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
 
 echo "Downloading ${BINARY_NAME} for ${TARGET}..."
-curl -fsSL -o "$BINARY_PATH" "$RELEASE_URL"
+curl_fetch -o "$BINARY_PATH" "$RELEASE_URL"
 
 echo "Downloading checksum..."
-curl -fsSL -o "$SHA_PATH" "$SHA_URL"
+curl_fetch -o "$SHA_PATH" "$SHA_URL"
 
 # Extract expected hash (first field of sha256 file)
 EXPECTED_HASH=$(cut -d' ' -f1 < "$SHA_PATH")
@@ -191,8 +204,11 @@ chmod +x "$BINARY_PATH"
 INSTALL_DIR=${BASHC_INSTALL_DIR:-"$HOME/.mybin"}
 PERSISTENT_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
 mkdir -p "$INSTALL_DIR"
-cp "$BINARY_PATH" "$PERSISTENT_BINARY"
-chmod 755 "$PERSISTENT_BINARY"
+STAGED_BINARY=$(mktemp "${INSTALL_DIR}/.bashc.XXXXXX")
+cp "$BINARY_PATH" "$STAGED_BINARY"
+chmod 755 "$STAGED_BINARY"
+mv -f "$STAGED_BINARY" "$PERSISTENT_BINARY"
+STAGED_BINARY=""
 echo "Installed ${BINARY_NAME} to ${PERSISTENT_BINARY}"
 
 setup_repository_and_shells() {

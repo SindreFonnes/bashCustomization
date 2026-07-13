@@ -6,6 +6,8 @@ use crate::common::{
 };
 use crate::install::InstallConfig;
 
+const HASHICORP_APT_KEY_FINGERPRINTS: &[&str] = &["798AEC654E5C15428C8E42EEAA16FCBCA621E701"];
+
 #[derive(Debug, Clone, Copy)]
 pub struct TerraformInstaller;
 
@@ -20,6 +22,14 @@ impl crate::install::Installer for TerraformInstaller {
 
     fn is_installed(&self) -> bool {
         command::exists("terraform")
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_fedora()
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -56,6 +66,7 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://apt.releases.hashicorp.com/gpg",
         "/etc/apt/keyrings/hashicorp.gpg",
+        HASHICORP_APT_KEY_FINGERPRINTS,
     )?;
 
     let codename = platform::get_apt_codename().ok_or_else(|| {

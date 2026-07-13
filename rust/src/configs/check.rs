@@ -8,12 +8,14 @@ use anyhow::Result;
 
 use crate::common::platform::Platform;
 use crate::configs::link::create_symlink;
-use crate::configs::manifest::{load_manifest, load_manifest_unfiltered};
+use crate::configs::manifest::{
+    load_manifest, load_manifest_unfiltered, validate_source_filesystem_containment,
+};
 use crate::configs::state::{
     SelfManagedEntry, detect_state, load_self_managed, prune_stale_self_managed,
     remove_self_managed,
 };
-use crate::configs::{ConfigEntry, EntryState};
+use crate::configs::{ConfigEntry, EntryState, home_dir, target_is_within_home_scope};
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -23,14 +25,58 @@ pub fn run_check(project_root: &Path, platform: &Platform) -> Result<()> {
     let filtered_entries = load_manifest(project_root, platform)?;
     let unfiltered_entries = load_manifest_unfiltered(project_root)?;
     let self_managed = load_self_managed(project_root)?;
+    let home = home_dir()?;
+    let (automatic_entries, restricted) =
+        select_automatic_entries(&filtered_entries, &self_managed, project_root, &home)?;
 
     write_check(
         &mut std::io::stdout(),
-        &filtered_entries,
+        &automatic_entries,
         &unfiltered_entries,
         &self_managed,
         project_root,
-    )
+    )?;
+
+    if !restricted.is_empty() {
+        println!(
+            "bashc: ⚠ {} config files require manual safety review ({}) — run 'bashc configs status'",
+            restricted.len(),
+            restricted.join(", ")
+        );
+    }
+
+    Ok(())
+}
+
+fn select_automatic_entries(
+    entries: &[ConfigEntry],
+    self_managed: &[SelfManagedEntry],
+    project_root: &Path,
+    home: &Path,
+) -> Result<(Vec<ConfigEntry>, Vec<String>)> {
+    let mut automatic = Vec::new();
+    let mut restricted = Vec::new();
+
+    for entry in entries {
+        if entry.source.exists()
+            && validate_source_filesystem_containment(&entry.source, project_root).is_err()
+        {
+            restricted.push(format!("{}: source escapes configs", entry.name));
+            continue;
+        }
+
+        if !target_is_within_home_scope(&entry.target, home)? {
+            let state = detect_state(entry, self_managed);
+            if !matches!(state, EntryState::Linked | EntryState::SelfManaged) {
+                restricted.push(format!("{}: target outside home", entry.name));
+            }
+            continue;
+        }
+
+        automatic.push(entry.clone());
+    }
+
+    Ok((automatic, restricted))
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +237,47 @@ mod tests {
             "output should be empty when all linked, got: {output:?}"
         );
         assert!(target.is_symlink(), "target should still be a symlink");
+    }
+
+    #[test]
+    fn automatic_check_excludes_external_targets_and_source_symlink_escapes() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().join("home");
+        let configs = dir.path().join("configs");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&configs).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let safe_source = configs.join("safe");
+        std::fs::write(&safe_source, "safe").unwrap();
+        let escaped_source = configs.join("escaped");
+        let external_source = outside.join("external");
+        std::fs::write(&external_source, "external").unwrap();
+        symlink(&external_source, &escaped_source).unwrap();
+
+        let entries = vec![
+            make_entry("safe", &safe_source, &home.join(".config/safe")),
+            make_entry("external-target", &safe_source, &outside.join("target")),
+            make_entry(
+                "escaped-source",
+                &escaped_source,
+                &home.join(".config/escaped"),
+            ),
+        ];
+
+        let (automatic, restricted) =
+            select_automatic_entries(&entries, &[], dir.path(), &home).unwrap();
+
+        assert_eq!(automatic.len(), 1);
+        assert_eq!(automatic[0].name, "safe");
+        assert_eq!(restricted.len(), 2);
+        assert!(restricted.iter().any(|item| item.contains("outside home")));
+        assert!(
+            restricted
+                .iter()
+                .any(|item| item.contains("source escapes"))
+        );
     }
 
     // ── Test 2: Silent when self-managed ─────────────────────────────────────

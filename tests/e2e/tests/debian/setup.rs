@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use bashc_e2e::container::TestContainer;
 use bashc_e2e::distro::{docker_dir, repo_root};
 use bollard::Docker;
-use tokio::sync::{Mutex, OnceCell};
+#[cfg(feature = "full-install-tests")]
+use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 const BUILDER_IMAGE_TAG: &str = "bashc-builder";
 const DEBIAN_IMAGE_TAG: &str = "bashc-test-debian";
@@ -23,6 +25,7 @@ static CONTAINER: OnceCell<TestContainer> = OnceCell::const_new();
 /// container, running `apt-get update` concurrently from multiple test
 /// modules would cause apt lock contention. Centralising it here ensures it
 /// executes at most once, regardless of how many modules call it.
+#[cfg(feature = "full-install-tests")]
 static APT_UPDATED: OnceCell<()> = OnceCell::const_new();
 
 /// Global mutex that serialises all apt-get install invocations.
@@ -32,6 +35,7 @@ static APT_UPDATED: OnceCell<()> = OnceCell::const_new();
 /// time inside the shared container they will race on those locks and one will
 /// fail with exit code 100. Holding this mutex around every install call
 /// guarantees at most one apt operation is in-flight at any moment.
+#[cfg(feature = "full-install-tests")]
 static APT_INSTALL_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Get or initialize the shared Debian test container.
@@ -50,6 +54,7 @@ pub async fn get_container() -> &'static TestContainer {
 /// Hold the returned guard for the duration of any `apt-get install` or
 /// `bashc install` call to prevent concurrent apt invocations inside the
 /// shared container.
+#[cfg(feature = "full-install-tests")]
 pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
     APT_INSTALL_LOCK.lock().await
 }
@@ -58,6 +63,7 @@ pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
 ///
 /// Multiple concurrent callers are safe: `OnceCell::get_or_init` serialises
 /// them so only one invocation of `apt-get update` ever runs.
+#[cfg(feature = "full-install-tests")]
 pub async fn ensure_apt_updated() {
     APT_UPDATED
         .get_or_init(|| async {

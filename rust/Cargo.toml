@@ -2,6 +2,7 @@
 name = "bashc"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [[bin]]
 name = "bashc"
@@ -11,7 +12,7 @@ path = "src/main.rs"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 dialoguer = "0.11"
-indicatif = "0.17"
+indicatif = "0.18"
 libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 semver = "1"
@@ -20,7 +21,6 @@ serde_json = "1"
 sha2 = "0.10"
 similar = "2"
 tempfile = "3"
-tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 
 [dev-dependencies]

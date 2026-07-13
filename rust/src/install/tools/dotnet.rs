@@ -4,7 +4,9 @@ use crate::common::{
     command, package_manager,
     platform::{self, Platform},
 };
-use crate::install::InstallConfig;
+use crate::install::{InstallConfig, InstallationState};
+
+const MICROSOFT_APT_KEY_FINGERPRINTS: &[&str] = &["BC528686B50D79E339D3721CEB3E94ADBE1229CF"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct DotnetInstaller;
@@ -19,7 +21,27 @@ impl crate::install::Installer for DotnetInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("dotnet")
+        dotnet_sdk_installed()
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_fedora()
+    }
+
+    fn installation_state(&self, _platform: &Platform) -> InstallationState {
+        if !command::exists("dotnet") {
+            InstallationState::Missing
+        } else if dotnet_sdk_installed() {
+            InstallationState::Complete
+        } else {
+            InstallationState::Incomplete(
+                "dotnet command exists but no SDK is installed".to_string(),
+            )
+        }
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -43,6 +65,12 @@ impl crate::install::Installer for DotnetInstaller {
     }
 }
 
+fn dotnet_sdk_installed() -> bool {
+    command::run("dotnet", &["--list-sdks"])
+        .map(|output| !output.trim().is_empty())
+        .unwrap_or(false)
+}
+
 fn install_dotnet_apt(platform: &Platform) -> Result<()> {
     if !platform.is_debian() {
         let distro = platform.distro();
@@ -61,6 +89,7 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://packages.microsoft.com/keys/microsoft.asc",
         "/etc/apt/keyrings/microsoft.gpg",
+        MICROSOFT_APT_KEY_FINGERPRINTS,
     )?;
 
     let codename = platform::get_apt_codename().ok_or_else(|| {
