@@ -2,15 +2,6 @@ use anyhow::{Result, bail};
 
 use super::command;
 
-/// Returns `Ok(())` if any privilege escalation method is available
-/// (running as root, or sudo/doas/su on PATH), `Err` otherwise.
-///
-/// Useful for pre-flight checks that need to know if escalation is possible
-/// without actually running a privileged command.
-pub fn detect_escalator() -> Result<()> {
-    detect_escalator_inner().map(|_| ())
-}
-
 /// Returns `true` if sudo, doas, or su exist on PATH (ignoring whether the
 /// current process is root).  Used in the doas bootstrap pre-flight to decide
 /// whether a PATH-based escalator is already present.

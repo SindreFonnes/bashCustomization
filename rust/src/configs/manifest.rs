@@ -1,6 +1,6 @@
 // manifest: config file loading and parsing
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -109,6 +109,8 @@ fn parse_manifest_entries(
             continue;
         }
 
+        validate_relative_source(&raw_entry.source, &raw_entry.name)?;
+
         // Resolve source to absolute path.
         //
         // Missing source files are NOT warned about here: `bashc configs
@@ -121,6 +123,7 @@ fn parse_manifest_entries(
 
         // Expand leading ~ in target
         let target = expand_tilde(&raw_entry.target, home);
+        validate_absolute_target(&target, &raw_entry.target, &raw_entry.name)?;
 
         entries.push(ConfigEntry {
             name: raw_entry.name,
@@ -131,6 +134,45 @@ fn parse_manifest_entries(
     }
 
     Ok(entries)
+}
+
+/// Validate that a manifest source remains inside the repo's `configs/` tree.
+fn validate_relative_source(source: &str, name: &str) -> Result<()> {
+    let path = Path::new(source);
+
+    if source.is_empty() || path.is_absolute() {
+        anyhow::bail!(
+            "Invalid source for config '{}': source must be relative to configs/: {}",
+            name,
+            source
+        );
+    }
+
+    if path
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)))
+    {
+        anyhow::bail!(
+            "Invalid source for config '{}': source must not escape configs/: {}",
+            name,
+            source
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate that a manifest target resolves to an absolute filesystem path.
+fn validate_absolute_target(target: &Path, raw_target: &str, name: &str) -> Result<()> {
+    if !target.is_absolute() {
+        anyhow::bail!(
+            "Invalid target for config '{}': target must be absolute or start with ~/: {}",
+            name,
+            raw_target
+        );
+    }
+
+    Ok(())
 }
 
 /// Returns true if the raw platform string matches the current `Platform`.
@@ -436,6 +478,54 @@ target = "~/.claude/CLAUDE.md"
         assert_eq!(
             entries[0].source,
             PathBuf::from("/my/project/configs/claude/CLAUDE.md")
+        );
+    }
+
+    #[test]
+    fn absolute_source_is_rejected() {
+        let toml = r#"
+[[config]]
+name = "bad"
+source = "/etc/passwd"
+target = "~/.bad"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("absolute sources must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("source must be relative"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn parent_dir_source_is_rejected() {
+        let toml = r#"
+[[config]]
+name = "bad"
+source = "../outside"
+target = "~/.bad"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("sources must not escape configs/");
+        let msg = err.to_string();
+        assert!(msg.contains("must not escape"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn relative_target_is_rejected() {
+        let toml = r#"
+[[config]]
+name = "bad"
+source = "bad/config"
+target = ".config/bad"
+"#;
+        let err = load_manifest_from_str(toml, &fake_root(), &mac_platform(), FAKE_HOME)
+            .expect_err("relative targets must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("target must be absolute"),
+            "unexpected error: {msg}"
         );
     }
 

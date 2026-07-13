@@ -1,9 +1,8 @@
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
 
-use crate::common::platform::Platform;
-use super::{InstallConfig, InstallOutcome, Installer, Tool, ALL_TOOLS, available_tool_names, find_tool};
+use super::{
+    ALL_TOOLS, InstallConfig, InstallOutcome, Installer, Tool, available_tool_names, find_tool,
+};
 
 /// Run a single installer by name.
 pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
@@ -61,7 +60,7 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
     }
 }
 
-/// Run all installers with phased parallel execution.
+/// Run all installers in dependency phases.
 pub fn run_all(config: &InstallConfig) -> Result<()> {
     // Pre-flight: check sudo requirements
     if !config.dry_run {
@@ -107,9 +106,21 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     }
 
     // Group by phase
-    let phase0: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 0).collect();
-    let phase1: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 1).collect();
-    let phase2: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 2).collect();
+    let phase0: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 0)
+        .collect();
+    let phase1: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 1)
+        .collect();
+    let phase2: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 2)
+        .collect();
 
     let mut results: Vec<(String, InstallOutcome)> = Vec::new();
 
@@ -122,11 +133,15 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
         }
     }
 
-    // Phase 1: parallel tool installation
+    // Phase 1: tools. Keep this sequential: many installers mutate global
+    // package-manager state (apt/brew locks, repo files, /usr/local), so
+    // concurrent installs are not reliable across platforms.
     if !phase1.is_empty() {
-        println!("\n=== Phase 1: Tools (parallel) ===");
-        let phase1_results = run_phase_parallel(&phase1, config);
-        results.extend(phase1_results);
+        println!("\n=== Phase 1: Tools ===");
+        for tool in &phase1 {
+            let outcome = run_one(tool, config);
+            results.push((tool.name().to_string(), outcome));
+        }
     }
 
     // Phase 2: JS tools (sequential — nvm first, then rest)
@@ -139,7 +154,7 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
     }
 
     print_summary(&results);
-    Ok(())
+    bail_if_failed(&results)
 }
 
 /// Interactive mode: show multi-select menu.
@@ -163,110 +178,7 @@ pub fn run_interactive(config: &InstallConfig) -> Result<()> {
     }
 
     print_summary(&results);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Parallel execution
-// ---------------------------------------------------------------------------
-
-/// Snapshot of InstallConfig that can be shared across threads.
-struct ConfigSnapshot {
-    platform: Platform,
-    dry_run: bool,
-    verbose: bool,
-    interactive: bool,
-}
-
-/// Run a set of tools in parallel using tokio::task::spawn_blocking.
-fn run_phase_parallel(
-    tools: &[Tool],
-    config: &InstallConfig,
-) -> Vec<(String, InstallOutcome)> {
-    // For dry-run, just run sequentially
-    if config.dry_run {
-        return tools
-            .iter()
-            .map(|t| {
-                let outcome = run_one(t, config);
-                (t.name().to_string(), outcome)
-            })
-            .collect();
-    }
-
-    let rt = tokio::runtime::Handle::current();
-    let shared_config = Arc::new(ConfigSnapshot {
-        platform: config.platform.clone(),
-        dry_run: config.dry_run,
-        verbose: config.verbose,
-        interactive: config.interactive,
-    });
-
-    let mut handles = Vec::new();
-
-    for &tool in tools {
-        let name = tool.name().to_string();
-
-        // Pre-flight checks before spawning
-        if tool.is_installed() {
-            handles.push((
-                name,
-                None,
-                Some(InstallOutcome::Skipped("already installed".to_string())),
-            ));
-            continue;
-        }
-
-        if tool.needs_sudo(&shared_config.platform)
-            && !crate::common::command::is_root()
-            && !crate::common::privilege::has_path_escalator()
-        {
-            handles.push((
-                name.clone(),
-                None,
-                Some(InstallOutcome::Failed(format!(
-                    "requires root privileges — no sudo/doas/su found to install {name}"
-                ))),
-            ));
-            continue;
-        }
-
-        let task_config = Arc::clone(&shared_config);
-        // Tool is Copy — just move the value into the closure
-        let handle = rt.spawn_blocking(move || {
-            println!("\n--- Installing {} ---", tool.name());
-            let install_config = InstallConfig {
-                platform: task_config.platform.clone(),
-                dry_run: task_config.dry_run,
-                verbose: task_config.verbose,
-                interactive: task_config.interactive,
-            };
-            match tool.install(&install_config) {
-                Ok(()) => InstallOutcome::Installed,
-                Err(e) => InstallOutcome::Failed(format!("{e:#}")),
-            }
-        });
-
-        handles.push((name, Some(handle), None));
-    }
-
-    // Collect results — use block_in_place to avoid panicking when
-    // block_on is called from within the tokio runtime context.
-    let mut results = Vec::new();
-    tokio::task::block_in_place(|| {
-        for (name, handle, immediate) in handles {
-            if let Some(outcome) = immediate {
-                results.push((name, outcome));
-            } else if let Some(handle) = handle {
-                let outcome = rt.block_on(handle).unwrap_or_else(|e| {
-                    InstallOutcome::Failed(format!("task panicked: {e}"))
-                });
-                results.push((name, outcome));
-            }
-        }
-    });
-
-    results
+    bail_if_failed(&results)
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +234,21 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
     }
 }
 
+fn bail_if_failed(results: &[(String, InstallOutcome)]) -> Result<()> {
+    let failed: Vec<&str> = results
+        .iter()
+        .filter_map(|(name, outcome)| {
+            matches!(outcome, InstallOutcome::Failed(_)).then_some(name.as_str())
+        })
+        .collect();
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        bail!("{} tool(s) failed: {}", failed.len(), failed.join(", "))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,8 +261,6 @@ mod tests {
                 arch: Arch::X86_64,
             },
             dry_run,
-            verbose: false,
-            interactive: false,
         }
     }
 
@@ -390,5 +315,23 @@ mod tests {
             }
             _ => panic!("expected Skipped outcome in dry-run mode"),
         }
+    }
+
+    #[test]
+    fn bail_if_failed_returns_error_for_failed_outcomes() {
+        let results = vec![
+            ("ripgrep".to_string(), InstallOutcome::Installed),
+            (
+                "docker".to_string(),
+                InstallOutcome::Failed("apt lock failed".to_string()),
+            ),
+        ];
+
+        let err = bail_if_failed(&results).expect_err("failed outcomes should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("docker"),
+            "error should name failed tool: {msg}"
+        );
     }
 }

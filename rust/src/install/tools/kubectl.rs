@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::common::{command, download, package_manager, platform::Platform, privilege};
 use crate::install::InstallConfig;
@@ -59,14 +59,13 @@ fn install_kubectl_direct(platform: &Platform) -> Result<()> {
     let go_os = platform.go_os();
     let go_arch = platform.go_arch();
 
-    let binary_url = format!(
-        "https://dl.k8s.io/release/{version}/bin/{go_os}/{go_arch}/kubectl"
-    );
+    let binary_url = format!("https://dl.k8s.io/release/{version}/bin/{go_os}/{go_arch}/kubectl");
     let sha_url = format!("{binary_url}.sha256");
 
     println!("Downloading kubectl {version}...");
-    let tmp_dir = std::env::temp_dir();
-    let binary_path = tmp_dir.join("kubectl");
+    let temp_dir =
+        tempfile::tempdir().context("creating temporary directory for kubectl download")?;
+    let binary_path = temp_dir.path().join("kubectl");
 
     download::download_file(&binary_url, &binary_path)?;
 
@@ -94,13 +93,22 @@ mod tests {
 
     #[test]
     fn needs_sudo_false_on_nixos() {
-        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
-        assert!(!KubectlInstaller.needs_sudo(&p), "NixOS should not need sudo (guidance only)");
+        let p = Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        };
+        assert!(
+            !KubectlInstaller.needs_sudo(&p),
+            "NixOS should not need sudo (guidance only)"
+        );
     }
 
     #[test]
     fn needs_sudo_false_on_mac() {
-        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        let p = Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        };
         assert!(!KubectlInstaller.needs_sudo(&p));
     }
 }

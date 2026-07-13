@@ -50,9 +50,18 @@ mod tests {
     #[test]
     fn needs_sudo_always_false() {
         let platforms = [
-            Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 },
-            Platform { os: Os::MacOs, arch: Arch::Aarch64 },
-            Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 },
+            Platform {
+                os: Os::Linux(Distro::Debian),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::MacOs,
+                arch: Arch::Aarch64,
+            },
+            Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
         ];
         for p in &platforms {
             assert!(!BrewInstaller.needs_sudo(p));
@@ -62,10 +71,11 @@ mod tests {
     #[test]
     fn unsupported_distro_errors() {
         let config = crate::install::InstallConfig {
-            platform: Platform { os: Os::Linux(Distro::Alpine), arch: Arch::X86_64 },
+            platform: Platform {
+                os: Os::Linux(Distro::Alpine),
+                arch: Arch::X86_64,
+            },
             dry_run: false,
-            verbose: false,
-            interactive: false,
         };
         let result = BrewInstaller.install(&config);
         assert!(result.is_err());

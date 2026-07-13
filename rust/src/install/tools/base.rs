@@ -27,7 +27,9 @@ impl crate::install::Installer for BaseInstaller {
             if platform.is_mac() {
                 println!("  Would install base packages via brew: git, gnupg");
             } else if platform.is_debian() {
-                println!("  Would install base packages via apt: build-essential, git, safe-rm, keychain, nala, gnupg, etc.");
+                println!(
+                    "  Would install base packages via apt: build-essential, git, safe-rm, keychain, nala, gnupg, etc."
+                );
             } else if let Some(distro) = platform.distro() {
                 println!("  base packages not yet configured for {distro:?}");
             }
@@ -97,7 +99,7 @@ fn install_base_linux(platform: &Platform) -> Result<()> {
     privilege::run_privileged("apt-get", &["update"])?;
 
     let mut args = vec!["install", "-y"];
-    let pkg_refs: Vec<&str> = packages.iter().copied().collect();
+    let pkg_refs: Vec<&str> = packages.to_vec();
     args.extend_from_slice(&pkg_refs);
 
     privilege::run_privileged("apt-get", &args)?;
@@ -114,19 +116,28 @@ mod tests {
 
     #[test]
     fn needs_sudo_on_debian() {
-        let p = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let p = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert!(BaseInstaller.needs_sudo(&p));
     }
 
     #[test]
     fn needs_sudo_false_on_mac() {
-        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        let p = Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        };
         assert!(!BaseInstaller.needs_sudo(&p));
     }
 
     #[test]
     fn needs_sudo_false_on_nixos() {
-        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        let p = Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        };
         assert!(!BaseInstaller.needs_sudo(&p));
     }
 
@@ -138,23 +149,30 @@ mod tests {
     #[test]
     fn unsupported_distro_errors() {
         let config = crate::install::InstallConfig {
-            platform: Platform { os: Os::Linux(Distro::Fedora), arch: Arch::X86_64 },
+            platform: Platform {
+                os: Os::Linux(Distro::Fedora),
+                arch: Arch::X86_64,
+            },
             dry_run: false,
-            verbose: false,
-            interactive: false,
         };
         let result = BaseInstaller.install(&config);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not yet configured"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not yet configured")
+        );
     }
 
     #[test]
     fn nixos_returns_guidance() {
         let config = crate::install::InstallConfig {
-            platform: Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 },
+            platform: Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
             dry_run: false,
-            verbose: false,
-            interactive: false,
         };
         // NixOS guidance returns Ok (prints advice)
         assert!(BaseInstaller.install(&config).is_ok());

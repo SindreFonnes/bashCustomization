@@ -44,7 +44,9 @@ impl crate::install::Installer for GoInstaller {
             if !package_manager::is_brew_failed() && package_manager::has_brew() {
                 println!("  Would install go via brew");
             } else {
-                println!("  Would download latest Go from go.dev, verify SHA256, extract to /usr/local/go");
+                println!(
+                    "  Would download latest Go from go.dev, verify SHA256, extract to /usr/local/go"
+                );
             }
             return Ok(());
         }
@@ -68,13 +70,10 @@ impl crate::install::Installer for GoInstaller {
 fn install_go_direct(platform: &Platform) -> Result<()> {
     println!("Fetching latest Go release from go.dev...");
 
-    let releases: Vec<GoRelease> =
-        download::fetch_json("https://go.dev/dl/?mode=json")
-            .context("failed to fetch Go releases")?;
+    let releases: Vec<GoRelease> = download::fetch_json("https://go.dev/dl/?mode=json")
+        .context("failed to fetch Go releases")?;
 
-    let release = releases
-        .first()
-        .context("no Go releases found")?;
+    let release = releases.first().context("no Go releases found")?;
 
     let go_os = platform.go_os();
     let go_arch = platform.go_arch();
@@ -84,7 +83,10 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
         .iter()
         .find(|f| f.kind == "archive" && f.os == go_os && f.arch == go_arch)
         .with_context(|| {
-            format!("no Go archive found for {go_os}/{go_arch} in {}", release.version)
+            format!(
+                "no Go archive found for {go_os}/{go_arch} in {}",
+                release.version
+            )
         })?;
 
     println!(
@@ -93,8 +95,8 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
         &file.sha256[..12]
     );
 
-    let tmp_dir = std::env::temp_dir();
-    let archive_path = tmp_dir.join(&file.filename);
+    let temp_dir = tempfile::tempdir().context("creating temporary directory for Go download")?;
+    let archive_path = temp_dir.path().join(&file.filename);
 
     let url = format!("https://go.dev/dl/{}", file.filename);
     download::download_file(&url, &archive_path)?;
@@ -120,7 +122,10 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     let _ = std::fs::remove_file(&archive_path);
 
     println!("Go {} installed to /usr/local/go", release.version);
-    if !std::env::var("PATH").unwrap_or_default().contains("/usr/local/go/bin") {
+    if !std::env::var("PATH")
+        .unwrap_or_default()
+        .contains("/usr/local/go/bin")
+    {
         println!("Note: Add /usr/local/go/bin to your PATH");
     }
 
@@ -135,7 +140,10 @@ mod tests {
 
     #[test]
     fn needs_sudo_on_debian_without_brew() {
-        let p = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let p = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         // May be true or false depending on whether brew is on PATH in test env,
         // but should not panic
         let _ = GoInstaller.needs_sudo(&p);
@@ -143,13 +151,22 @@ mod tests {
 
     #[test]
     fn needs_sudo_false_on_nixos() {
-        let p = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
-        assert!(!GoInstaller.needs_sudo(&p), "NixOS should not need sudo (guidance only)");
+        let p = Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        };
+        assert!(
+            !GoInstaller.needs_sudo(&p),
+            "NixOS should not need sudo (guidance only)"
+        );
     }
 
     #[test]
     fn needs_sudo_false_on_mac() {
-        let p = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        let p = Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        };
         assert!(!GoInstaller.needs_sudo(&p));
     }
 }

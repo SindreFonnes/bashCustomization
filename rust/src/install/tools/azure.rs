@@ -1,6 +1,9 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -55,12 +58,7 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
         "/etc/apt/keyrings/microsoft.gpg",
     )?;
 
-    let arch = platform.go_arch();
-    let dpkg_arch = match arch {
-        "amd64" => "amd64",
-        "arm64" => "arm64",
-        _ => arch,
-    };
+    let dpkg_arch = platform.go_arch();
 
     let codename = platform::get_apt_codename().ok_or_else(|| {
         anyhow::anyhow!(
@@ -74,10 +72,7 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding Azure CLI apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/azure-cli.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/azure-cli.list")?;
 
     println!("Installing azure-cli...");
     package_manager::apt_install("azure-cli")?;
@@ -85,4 +80,3 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     println!("Azure CLI installed");
     Ok(())
 }
-

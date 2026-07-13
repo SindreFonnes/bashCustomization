@@ -65,11 +65,7 @@ fn install_obsidian_deb(platform: &Platform) -> Result<()> {
         "https://api.github.com/repos/obsidianmd/obsidian-releases/releases/latest",
     )?;
 
-    let arch_suffix = match platform.go_arch() {
-        "amd64" => "amd64",
-        "arm64" => "arm64",
-        other => other,
-    };
+    let arch_suffix = platform.go_arch();
 
     let deb_asset = release
         .assets
@@ -79,8 +75,9 @@ fn install_obsidian_deb(platform: &Platform) -> Result<()> {
         .context("no .deb asset found in Obsidian release")?;
 
     println!("Downloading {}...", deb_asset.name);
-    let tmp_dir = std::env::temp_dir();
-    let deb_path = tmp_dir.join(&deb_asset.name);
+    let temp_dir =
+        tempfile::tempdir().context("creating temporary directory for Obsidian download")?;
+    let deb_path = temp_dir.path().join(&deb_asset.name);
 
     download::download_file(&deb_asset.browser_download_url, &deb_path)?;
 

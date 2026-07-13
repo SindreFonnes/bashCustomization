@@ -6,14 +6,12 @@ use anyhow::Result;
 use crate::common::platform::Platform;
 
 // Re-export the public API
-pub use orchestrator::{run_all, run_by_name, run_interactive};
+pub use orchestrator::{run_by_name, run_interactive};
 
 /// Configuration passed to every installer.
 pub struct InstallConfig {
     pub platform: Platform,
     pub dry_run: bool,
-    pub verbose: bool,
-    pub interactive: bool,
 }
 
 /// Outcome of a single install attempt.

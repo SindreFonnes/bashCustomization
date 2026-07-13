@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use super::command;
+use super::download;
 use super::platform::{Distro, Platform};
 use super::privilege;
 
@@ -30,10 +31,10 @@ pub fn is_brew_applicable(platform: &Platform) -> bool {
     if platform.is_mac() {
         return true;
     }
-    match platform.distro() {
-        Some(Distro::Debian | Distro::Ubuntu | Distro::Fedora) => true,
-        _ => false,
-    }
+    matches!(
+        platform.distro(),
+        Some(Distro::Debian | Distro::Ubuntu | Distro::Fedora)
+    )
 }
 
 /// Ensure Homebrew is installed. On macOS: /opt/homebrew or /usr/local.
@@ -65,7 +66,9 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         );
 
         if result.is_err() {
-            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
+            eprintln!(
+                "Homebrew installation failed — falling back to native package manager for remaining tools."
+            );
             set_brew_failed();
             return result;
         }
@@ -85,15 +88,16 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         );
 
         if result.is_err() {
-            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
+            eprintln!(
+                "Homebrew installation failed — falling back to native package manager for remaining tools."
+            );
             set_brew_failed();
             return result;
         }
 
         // Activate Linuxbrew in the current process
         if std::path::Path::new("/home/linuxbrew/.linuxbrew/bin/brew").exists() {
-            let shellenv =
-                command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
+            let shellenv = command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
             apply_shellenv(&shellenv);
         }
     }
@@ -113,17 +117,19 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
 fn apply_shellenv(shellenv: &str) {
     for line in shellenv.lines() {
         // Parse lines like: export HOMEBREW_PREFIX="/opt/homebrew"
-        if let Some(rest) = line.strip_prefix("export ") {
-            if let Some((key, value)) = rest.split_once('=') {
-                let mut value = value.trim_matches('"').trim_matches(';').to_string();
-                // Expand $PATH / ${PATH} references against current env
-                if let Ok(current) = std::env::var(key) {
-                    value = value
-                        .replace(&format!("${{{key}}}"), &current)
-                        .replace(&format!("${key}"), &current);
-                }
-                // SAFETY: runs during single-threaded init before parallel installs
-                unsafe { std::env::set_var(key, &value); }
+        if let Some(rest) = line.strip_prefix("export ")
+            && let Some((key, value)) = rest.split_once('=')
+        {
+            let mut value = value.trim_matches('"').trim_matches(';').to_string();
+            // Expand $PATH / ${PATH} references against current env
+            if let Ok(current) = std::env::var(key) {
+                value = value
+                    .replace(&format!("${{{key}}}"), &current)
+                    .replace(&format!("${key}"), &current);
+            }
+            // SAFETY: runs during single-threaded init before installs.
+            unsafe {
+                std::env::set_var(key, &value);
             }
         }
     }
@@ -189,25 +195,19 @@ pub fn install(platform: &Platform, package: &str) -> Result<()> {
 /// Install a package via dnf (Fedora/RHEL/CentOS).
 /// Stub — not yet implemented.
 pub fn dnf_install(package: &str) -> Result<()> {
-    bail!(
-        "Fedora/RHEL support not yet implemented. Would install: {package}"
-    )
+    bail!("Fedora/RHEL support not yet implemented. Would install: {package}")
 }
 
 /// Install a package via pacman (Arch/Manjaro).
 /// Stub — not yet implemented.
 pub fn pacman_install(package: &str) -> Result<()> {
-    bail!(
-        "Arch Linux support not yet implemented. Would install: {package}"
-    )
+    bail!("Arch Linux support not yet implemented. Would install: {package}")
 }
 
 /// Install a package via apk (Alpine).
 /// Stub — not yet implemented.
 pub fn apk_install(package: &str) -> Result<()> {
-    bail!(
-        "Alpine Linux support not yet implemented. Would install: {package}"
-    )
+    bail!("Alpine Linux support not yet implemented. Would install: {package}")
 }
 
 /// Print declarative guidance for NixOS users.
@@ -228,30 +228,61 @@ pub fn apt_install(package: &str) -> Result<()> {
 
 /// Download a GPG key and install it for apt.
 pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
-    // Ensure /etc/apt/keyrings exists
-    privilege::run_privileged("mkdir", &["-p", "/etc/apt/keyrings"])?;
+    let temp_dir = tempfile::tempdir().context("creating temporary directory for apt key")?;
+    let key_path = temp_dir.path().join("repo-key");
 
     if url.ends_with(".gpg") {
-        // Already a binary keyring — download directly without dearmoring
-        let cmd = format!("curl -fsSL '{}' -o '{}'", url, keyring_path);
-        privilege::run_privileged("bash", &["-c", &cmd])
+        download::download_file(url, &key_path)?;
+        install_apt_file(&key_path, keyring_path)
     } else {
-        // ASCII-armored key (.asc or bare) — ensure gpg is available, then dearmor
-        let cmd = format!(
-            "if ! command -v gpg >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq gnupg; fi; \
-             curl -fsSL '{}' | gpg --dearmor -o '{}'",
-            url, keyring_path
-        );
-        privilege::run_privileged("bash", &["-c", &cmd])
+        if !command::exists("gpg") {
+            privilege::run_privileged("apt-get", &["update", "-qq"])?;
+            privilege::run_privileged("apt-get", &["install", "-y", "-qq", "gnupg"])?;
+        }
+
+        let armored_path = temp_dir.path().join("repo-key.asc");
+        let dearmored_path = temp_dir.path().join("repo-key.gpg");
+        download::download_file(url, &armored_path)?;
+
+        command::run_visible(
+            "gpg",
+            &[
+                "--dearmor",
+                "-o",
+                path_arg(&dearmored_path)?,
+                path_arg(&armored_path)?,
+            ],
+        )?;
+
+        install_apt_file(&dearmored_path, keyring_path)
     }
 }
 
 /// Add an apt repository source file and run apt update.
 pub fn apt_add_repo(repo_line: &str, list_file: &str) -> Result<()> {
-    let cmd = format!("echo '{}' | tee {}", repo_line, list_file);
+    let temp_dir = tempfile::tempdir().context("creating temporary directory for apt repo")?;
+    let source_path = temp_dir.path().join("repo.list");
+    std::fs::write(&source_path, format!("{repo_line}\n"))
+        .with_context(|| format!("writing {}", source_path.display()))?;
 
-    privilege::run_privileged("bash", &["-c", &cmd])?;
+    install_apt_file(&source_path, list_file)?;
     privilege::run_privileged("apt-get", &["update"])
+}
+
+fn install_apt_file(source: &std::path::Path, destination: &str) -> Result<()> {
+    if !std::path::Path::new(destination).is_absolute() {
+        bail!("apt destination must be absolute: {destination}");
+    }
+
+    privilege::run_privileged(
+        "install",
+        &["-D", "-m", "0644", "--", path_arg(source)?, destination],
+    )
+}
+
+fn path_arg(path: &std::path::Path) -> Result<&str> {
+    path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("path is not valid UTF-8: {}", path.display()))
 }
 
 /// Returns true if on Linux and not root (needs sudo/privilege escalation
@@ -259,6 +290,7 @@ pub fn apt_add_repo(repo_line: &str, list_file: &str) -> Result<()> {
 ///
 /// NixOS never needs sudo for package operations (declarative model).
 /// macOS does not use apt, so always returns false.
+#[allow(dead_code)]
 pub fn needs_sudo_for_native_pkg(platform: &Platform) -> bool {
     if platform.is_mac() {
         return false;
@@ -270,6 +302,7 @@ pub fn needs_sudo_for_native_pkg(platform: &Platform) -> bool {
 }
 
 /// Legacy alias — prefer `needs_sudo_for_native_pkg`.
+#[allow(dead_code)]
 pub fn needs_sudo_for_apt(platform: &Platform) -> bool {
     needs_sudo_for_native_pkg(platform)
 }
@@ -422,7 +455,10 @@ mod tests {
             msg.contains("Fedora/RHEL support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -434,7 +470,10 @@ mod tests {
             msg.contains("Arch Linux support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -446,7 +485,10 @@ mod tests {
             msg.contains("Alpine Linux support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -555,18 +597,19 @@ mod tests {
     fn apply_shellenv_sets_simple_var() {
         let input = r#"export HOMEBREW_PREFIX="/opt/homebrew""#;
         apply_shellenv(input);
-        assert_eq!(
-            std::env::var("HOMEBREW_PREFIX").unwrap(),
-            "/opt/homebrew"
-        );
+        assert_eq!(std::env::var("HOMEBREW_PREFIX").unwrap(), "/opt/homebrew");
         // Clean up
-        unsafe { std::env::remove_var("HOMEBREW_PREFIX"); }
+        unsafe {
+            std::env::remove_var("HOMEBREW_PREFIX");
+        }
     }
 
     #[test]
     fn apply_shellenv_expands_path_braces() {
         // Set a known value so expansion is predictable
-        unsafe { std::env::set_var("TEST_SHELLENV_PATH", "/original"); }
+        unsafe {
+            std::env::set_var("TEST_SHELLENV_PATH", "/original");
+        }
 
         let input = r#"export TEST_SHELLENV_PATH="/opt/homebrew/bin:${TEST_SHELLENV_PATH}""#;
         apply_shellenv(input);
@@ -576,12 +619,16 @@ mod tests {
             "should expand ${{TEST_SHELLENV_PATH}} to the current value"
         );
         // Clean up
-        unsafe { std::env::remove_var("TEST_SHELLENV_PATH"); }
+        unsafe {
+            std::env::remove_var("TEST_SHELLENV_PATH");
+        }
     }
 
     #[test]
     fn apply_shellenv_expands_path_dollar() {
-        unsafe { std::env::set_var("TEST_SHELLENV_PATH2", "/existing"); }
+        unsafe {
+            std::env::set_var("TEST_SHELLENV_PATH2", "/existing");
+        }
 
         let input = r#"export TEST_SHELLENV_PATH2="/new/bin:$TEST_SHELLENV_PATH2""#;
         apply_shellenv(input);
@@ -590,21 +637,27 @@ mod tests {
             "/new/bin:/existing",
             "should expand $TEST_SHELLENV_PATH2 to the current value"
         );
-        unsafe { std::env::remove_var("TEST_SHELLENV_PATH2"); }
+        unsafe {
+            std::env::remove_var("TEST_SHELLENV_PATH2");
+        }
     }
 
     #[test]
     fn apply_shellenv_no_clobber_when_var_unset() {
         // If the var doesn't exist yet, literal value should be set as-is
         // (no expansion needed since there's nothing to expand from)
-        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
+        unsafe {
+            std::env::remove_var("TEST_SHELLENV_NEW");
+        }
         let input = r#"export TEST_SHELLENV_NEW="/brand/new/path""#;
         apply_shellenv(input);
         assert_eq!(
             std::env::var("TEST_SHELLENV_NEW").unwrap(),
             "/brand/new/path"
         );
-        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
+        unsafe {
+            std::env::remove_var("TEST_SHELLENV_NEW");
+        }
     }
 
     #[test]
@@ -612,7 +665,9 @@ mod tests {
         let input = "# comment\neval \"something\"\nexport TEST_SHELLENV_ONLY=\"yes\"";
         apply_shellenv(input);
         assert_eq!(std::env::var("TEST_SHELLENV_ONLY").unwrap(), "yes");
-        unsafe { std::env::remove_var("TEST_SHELLENV_ONLY"); }
+        unsafe {
+            std::env::remove_var("TEST_SHELLENV_ONLY");
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -1,6 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
-use crate::common::{command, download, package_manager, platform::{Arch, Platform}};
+use crate::common::{
+    self, command, download, package_manager,
+    platform::{Arch, Platform},
+};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -13,9 +16,7 @@ impl crate::install::Installer for NeovimInstaller {
 
     fn needs_sudo(&self, platform: &Platform) -> bool {
         // Needs sudo on aarch64 Debian Linux without brew (apt install)
-        platform.is_debian()
-            && !package_manager::has_brew()
-            && platform.arch == Arch::Aarch64
+        platform.is_debian() && !package_manager::has_brew() && platform.arch == Arch::Aarch64
     }
 
     fn is_installed(&self) -> bool {
@@ -63,10 +64,15 @@ fn install_neovim_appimage() -> Result<()> {
     let mybin = dirs_mybin()?;
     let dest = mybin.join("nvim");
 
+    let temp_dir =
+        tempfile::tempdir().context("creating temporary directory for Neovim download")?;
+    let temp_dest = temp_dir.path().join("nvim.appimage");
+
     download::download_file(
         "https://github.com/neovim/neovim/releases/latest/download/nvim.appimage",
-        &dest,
+        &temp_dest,
     )?;
+    std::fs::rename(&temp_dest, &dest)?;
 
     // Make executable
     command::run_visible("chmod", &["+x", dest.to_str().unwrap()])?;
@@ -76,8 +82,7 @@ fn install_neovim_appimage() -> Result<()> {
 }
 
 fn dirs_mybin() -> Result<std::path::PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let mybin = std::path::PathBuf::from(home).join(".mybin");
+    let mybin = common::home_dir()?.join(".mybin");
     std::fs::create_dir_all(&mybin)?;
     Ok(mybin)
 }

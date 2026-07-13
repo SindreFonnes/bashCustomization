@@ -87,17 +87,12 @@ async fn main() -> anyhow::Result<()> {
             tool,
             interactive,
             dry_run,
-            verbose,
+            verbose: _,
         } => {
             let platform = common::platform::Platform::detect()?;
             println!("Detected platform: {}", platform);
 
-            let config = install::InstallConfig {
-                platform,
-                dry_run,
-                verbose,
-                interactive,
-            };
+            let config = install::InstallConfig { platform, dry_run };
 
             if interactive {
                 install::run_interactive(&config)?;
@@ -117,34 +112,16 @@ async fn main() -> anyhow::Result<()> {
 
             match action {
                 ConfigsAction::Link { name, force } => {
-                    configs::link::run_link(
-                        &project_root,
-                        &platform,
-                        name.as_deref(),
-                        force,
-                    )?;
+                    configs::link::run_link(&project_root, &platform, name.as_deref(), force)?;
                 }
                 ConfigsAction::Unlink { name, yes } => {
-                    configs::unlink::run_unlink(
-                        &project_root,
-                        &platform,
-                        name.as_deref(),
-                        yes,
-                    )?;
+                    configs::unlink::run_unlink(&project_root, &platform, name.as_deref(), yes)?;
                 }
                 ConfigsAction::Status { name } => {
-                    configs::status::run_status(
-                        &project_root,
-                        &platform,
-                        name.as_deref(),
-                    )?;
+                    configs::status::run_status(&project_root, &platform, name.as_deref())?;
                 }
                 ConfigsAction::Diff { name } => {
-                    configs::diff::run_diff(
-                        &project_root,
-                        &platform,
-                        name.as_deref(),
-                    )?;
+                    configs::diff::run_diff(&project_root, &platform, name.as_deref())?;
                 }
                 ConfigsAction::Check {} => {
                     configs::check::run_check(&project_root, &platform)?;

@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::common::{command, package_manager, platform::Platform};
+use crate::common::{self, command, package_manager, platform::Platform};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -47,17 +47,14 @@ impl crate::install::Installer for FdInstaller {
         package_manager::install(&config.platform, package)?;
 
         // On Debian/Ubuntu, fd is installed as fdfind — create symlink
-        if config.platform.is_debian() {
-            if command::exists("fdfind") && !command::exists("fd") {
-                let local_bin =
-                    format!("{}/.local/bin", std::env::var("HOME").unwrap_or_default());
-                std::fs::create_dir_all(&local_bin)?;
-                let symlink_path = format!("{local_bin}/fd");
-                if !std::path::Path::new(&symlink_path).exists() {
-                    let fdfind_path = command::run("which", &["fdfind"])?;
-                    std::os::unix::fs::symlink(fdfind_path.trim(), &symlink_path)?;
-                    println!("Created symlink {symlink_path} -> fdfind");
-                }
+        if config.platform.is_debian() && command::exists("fdfind") && !command::exists("fd") {
+            let local_bin = common::home_dir()?.join(".local").join("bin");
+            std::fs::create_dir_all(&local_bin)?;
+            let symlink_path = local_bin.join("fd");
+            if !symlink_path.exists() {
+                let fdfind_path = command::run("which", &["fdfind"])?;
+                std::os::unix::fs::symlink(fdfind_path.trim(), &symlink_path)?;
+                println!("Created symlink {} -> fdfind", symlink_path.display());
             }
         }
 

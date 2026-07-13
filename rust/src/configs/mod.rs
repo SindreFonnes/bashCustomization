@@ -45,11 +45,12 @@ pub enum EntryState {
 }
 
 /// How to resolve a conflict when the target already exists.
-#[derive(Debug, Clone, PartialEq, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Strategy {
     /// Show an interactive menu (default).
     #[clap(skip)]
+    #[default]
     Prompt,
     /// Backup the existing file and replace it.
     Replace,
@@ -57,12 +58,6 @@ pub enum Strategy {
     Discard,
     /// Mark the existing file as self-managed; leave it in place.
     Keep,
-}
-
-impl Default for Strategy {
-    fn default() -> Self {
-        Strategy::Prompt
-    }
 }
 
 /// A resolved config entry ready for use at runtime.

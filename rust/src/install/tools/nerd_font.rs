@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::common::{command, download, package_manager, platform::Platform};
+use crate::common::{self, command, download, package_manager, platform::Platform};
 use crate::install::InstallConfig;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,8 +28,10 @@ impl crate::install::Installer for NerdFontInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let font_dir = format!("{home}/.local/share/fonts");
+        let Ok(home) = common::home_dir() else {
+            return false;
+        };
+        let font_dir = home.join(".local").join("share").join("fonts");
 
         // Check if any JetBrainsMono files exist in the font directory
         if let Ok(entries) = std::fs::read_dir(&font_dir) {
@@ -46,8 +48,7 @@ impl crate::install::Installer for NerdFontInstaller {
 
         // On macOS, check brew list
         if package_manager::has_brew() {
-            return command::run("brew", &["list", "font-jetbrains-mono-nerd-font"])
-                .is_ok();
+            return command::run("brew", &["list", "font-jetbrains-mono-nerd-font"]).is_ok();
         }
 
         false
@@ -60,7 +61,9 @@ impl crate::install::Installer for NerdFontInstaller {
             if platform.is_mac() {
                 println!("  Would install font-jetbrains-mono-nerd-font via brew cask");
             } else {
-                println!("  Would download JetBrainsMono from GitHub Releases, install to ~/.local/share/fonts");
+                println!(
+                    "  Would download JetBrainsMono from GitHub Releases, install to ~/.local/share/fonts"
+                );
             }
             return Ok(());
         }
@@ -77,9 +80,8 @@ impl crate::install::Installer for NerdFontInstaller {
 fn install_nerd_font_linux() -> Result<()> {
     println!("Fetching latest Nerd Fonts release...");
 
-    let release: GitHubRelease = download::fetch_json(
-        "https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest",
-    )?;
+    let release: GitHubRelease =
+        download::fetch_json("https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest")?;
 
     let asset = release
         .assets
@@ -87,20 +89,29 @@ fn install_nerd_font_linux() -> Result<()> {
         .find(|a| a.name == "JetBrainsMono.tar.xz")
         .context("JetBrainsMono.tar.xz not found in Nerd Fonts release")?;
 
-    let tmp_dir = std::env::temp_dir();
-    let archive_path = tmp_dir.join("JetBrainsMono.tar.xz");
+    let temp_dir =
+        tempfile::tempdir().context("creating temporary directory for Nerd Font download")?;
+    let archive_path = temp_dir.path().join("JetBrainsMono.tar.xz");
 
     println!("Downloading JetBrainsMono.tar.xz...");
     download::download_file(&asset.browser_download_url, &archive_path)?;
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-    let font_dir = format!("{home}/.local/share/fonts/JetBrainsMono");
+    let font_dir = common::home_dir()?
+        .join(".local")
+        .join("share")
+        .join("fonts")
+        .join("JetBrainsMono");
     std::fs::create_dir_all(&font_dir)?;
 
-    println!("Extracting to {font_dir}...");
+    println!("Extracting to {}...", font_dir.display());
     command::run_visible(
         "tar",
-        &["-xf", archive_path.to_str().unwrap(), "-C", &font_dir],
+        &[
+            "-xf",
+            archive_path.to_str().unwrap(),
+            "-C",
+            font_dir.to_str().unwrap(),
+        ],
     )?;
 
     let _ = std::fs::remove_file(&archive_path);
