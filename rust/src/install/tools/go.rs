@@ -93,7 +93,7 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     println!(
         "Downloading {} (SHA256: {}...)",
         file.filename,
-        &file.sha256[..12]
+        file.sha256.get(..12).unwrap_or(&file.sha256)
     );
 
     let temp_dir = tempfile::tempdir().context("creating temporary directory for Go download")?;
@@ -110,15 +110,9 @@ fn install_go_direct(platform: &Platform) -> Result<()> {
     let extracted_root = temp_dir.path().join("extracted");
     std::fs::create_dir(&extracted_root)?;
     println!("Extracting and validating staged Go distribution...");
-    command::run_visible(
-        "tar",
-        &[
-            "-C",
-            extracted_root.to_str().unwrap(),
-            "-xzf",
-            archive_path.to_str().unwrap(),
-        ],
-    )?;
+    let extracted_root_arg = path_arg(&extracted_root)?;
+    let archive_arg = path_arg(&archive_path)?;
+    command::run_visible("tar", &["-C", extracted_root_arg, "-xzf", archive_arg])?;
     let extracted_go = extracted_root.join("go");
     if !extracted_go.join("bin/go").is_file() {
         bail!("downloaded Go archive did not contain go/bin/go")

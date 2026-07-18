@@ -20,7 +20,7 @@ INSTALL_DISTRO="Ubuntu";
 INSTALL_DISTRO_VERSION="22.04";
 
 check_param_for_string () {
-	if [[ "$1" == *"${@:2}"* ]]; then
+	if [[ "$1" == *"$2"* ]]; then
         return 0;
     fi
 	return 1;

@@ -54,10 +54,29 @@ _bashc_add_path_dir () {
 	export PATH
 }
 
+_bashc_prepend_path_dir () {
+	[ -d "$1" ] || return 0
+	case ":$PATH:" in
+		*":$1:"*) ;;
+		*) PATH="$1:$PATH" ;;
+	esac
+	export PATH
+}
+
+_bashc_install_dir=${BASHC_INSTALL_DIR:-}
+if [[ -z "$_bashc_install_dir" && -r "$HOME/.config/bashc/install_dir" ]]; then
+	IFS= read -r _bashc_install_dir < "$HOME/.config/bashc/install_dir" || _bashc_install_dir=""
+fi
+if [[ -z "$_bashc_install_dir" ]]; then
+	_bashc_install_dir="$HOME/.mybin"
+fi
+export BASHC_INSTALL_DIR="$_bashc_install_dir"
+_bashc_prepend_path_dir "$BASHC_INSTALL_DIR"
+unset _bashc_install_dir
+
 _bashc_add_path_dir "/usr/local/go/bin"
 _bashc_add_path_dir "$HOME/.cargo/bin"
 _bashc_add_path_dir "$HOME/.local/bin"
-_bashc_add_path_dir "$HOME/.mybin"
 _bashc_add_path_dir "$HOME/.bun/bin"
 _bashc_add_path_dir "$HOME/.local/share/pnpm"
 

@@ -1,23 +1,22 @@
 #!/bin/bash
 
 check_install_arg () {
-    local input=($@);
-
-    if [[ $2 == " " ]]; then
-        run_install_script "$1";
+	if [[ $2 == "unfilled_value" ]]; then
+		run_install_script "$1";
     else
         run_install_script_with_args "$1" "$2";
     fi
 }
 
 run_install_script () {
-    chmod +x "$1" &&
-    $1;
+	local script_path=$1
+	shift
+	chmod +x "$script_path" &&
+	"$script_path" "$@";
 }
 
 run_install_script_with_args () {
-    chmod +x "$1" &&
-    $1 "$2";
+	run_install_script "$@";
 }
 
 determine_install_script_to_use () {
@@ -41,7 +40,7 @@ determine_install_script_to_use () {
         local EZA_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/eza/installEza.sh;
         local SHELLCHECK_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/shellcheck/installShellcheck.sh;
 
-        local input=($@);
+		local input=("$@");
 
         # Argument 1 and 2 is reserved for passing the selection arguments
 
@@ -178,4 +177,4 @@ use_install_script () {
     done;
 }
 
-use_install_script $1 $2;
+use_install_script "$@";

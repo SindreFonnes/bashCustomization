@@ -127,11 +127,11 @@ diff-tag-full() {
             continue
         fi
         
-        if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
-            key="${BASH_REMATCH[1]}"
-            if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
-                key=$match[1]
-            fi
+		if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
+			key="${BASH_REMATCH[1]}"
+			if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
+				key="${match[1]:-}"
+			fi
             
             local item_exists=false
             for jira_case in "${jira_cases_in_commits[@]}"; do

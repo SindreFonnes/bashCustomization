@@ -109,9 +109,13 @@ fn write_check(
                 // Silent — no action needed.
             }
             EntryState::NotLinked => {
-                create_symlink(entry)?;
-                linked_count += 1;
-                linked_names.push(entry.name.clone());
+                // Another shell can run the startup check between our state
+                // observation and symlink creation. Treat the expected link
+                // appearing in that window as convergence, not a failure.
+                if create_symlink_convergent(entry, self_managed)? {
+                    linked_count += 1;
+                    linked_names.push(entry.name.clone());
+                }
                 // If a stale SM marker exists for this target, remove it — the
                 // entry is now a properly managed symlink, not a local override.
                 let target_str = entry.target.to_string_lossy();
@@ -180,6 +184,27 @@ fn write_check(
     }
 
     Ok(())
+}
+
+/// Returns true when this caller created the link, and false when another
+/// caller won the race and created the same expected link first.
+fn create_symlink_convergent(
+    entry: &ConfigEntry,
+    self_managed: &[SelfManagedEntry],
+) -> Result<bool> {
+    create_symlink_convergent_with(entry, self_managed, create_symlink)
+}
+
+fn create_symlink_convergent_with(
+    entry: &ConfigEntry,
+    self_managed: &[SelfManagedEntry],
+    create: impl FnOnce(&ConfigEntry) -> Result<()>,
+) -> Result<bool> {
+    match create(entry) {
+        Ok(()) => Ok(true),
+        Err(_) if detect_state(entry, self_managed) == EntryState::Linked => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +364,24 @@ mod tests {
             output.contains("test"),
             "output should mention the entry name, got: {output:?}"
         );
+    }
+
+    #[test]
+    fn check_accepts_an_expected_link_created_by_a_concurrent_caller() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "hello").unwrap();
+        let entry = make_entry("test", &source, &target);
+
+        let created_here = create_symlink_convergent_with(&entry, &[], |entry| {
+            create_symlink(entry)?;
+            Err(anyhow::anyhow!("simulated AlreadyExists race"))
+        })
+        .unwrap();
+
+        assert!(!created_here);
+        assert_eq!(detect_state(&entry, &[]), EntryState::Linked);
     }
 
     // ── Test 4: Auto-links multiple entries, dedups names in summary ──────────

@@ -1,28 +1,28 @@
 _bashc_source_file "$SHELL_EXTENTION_FOLDER_LOCATION/shellFunctions.sh" || return 1
 
 git_commit () {
-	local inputs=($@);
-	local parsedInput=${inputs[@]};
+	local inputs=("$@");
+	local parsedInput="${inputs[*]}";
 	git commit -m "$parsedInput";
 }
 
 git_add_commit () {
-	local inputs=($@);
-	local parsedInput=${inputs[@]};
+	local inputs=("$@");
+	local parsedInput="${inputs[*]}";
 
 	git add -A &&
 	git commit -m "$parsedInput";
 }
 
 git_add_commit_push () {
-	local inputs=($@);
+	local inputs=("$@");
 	ensure_ssh_agent &&
-	git_add_commit ${inputs[@]} &&
+	git_add_commit "${inputs[@]}" &&
 	git push;
 }
 
 git_add_commit_publish () {
-	local inputs=($@);
+	local inputs=("$@");
 	local branch_name=$(git branch --show-current);
 	
 	if [[ -z "$branch_name" ]]; then
@@ -31,7 +31,7 @@ git_add_commit_publish () {
 	fi
 	
 	ensure_ssh_agent &&
-	git_add_commit ${inputs[@]} &&
+	git_add_commit "${inputs[@]}" &&
 	git push --set-upstream origin "$branch_name";
 }
 
@@ -47,7 +47,7 @@ git_pull () {
 }
 
 git_clone () {
-	git clone $@;
+	git clone "$@";
 }
 
 git_checkout () {
@@ -140,20 +140,20 @@ git_delete_tag () {
 		return;
 	fi
 
-	git tag -d $1;
-	git push --delete origin $1;
+	git tag -d "$1";
+	git push --delete origin "$1";
 }
 
 git_commit_and_push_project () {
-	local inputs=($@);
 	local destination="$1";
-	local commitMessage="${inputs[@]:1}";
+	shift
+	local commitMessage="$*";
 	git_func () {
 		git_add_commit_push "$commitMessage"
 	}
-	execute_command_in_folder_and_go_back git_func $destination;
+	execute_command_in_folder_and_go_back git_func "$destination";
 }
 
 git_pull_repo () {
-	execute_command_in_folder_and_go_back git_pull $1
+	execute_command_in_folder_and_go_back git_pull "$1"
 }

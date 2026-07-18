@@ -104,7 +104,12 @@ fn install_obsidian_deb(platform: &Platform) -> Result<()> {
     download::verify_github_asset_digest(&deb_path, deb_asset.digest.as_deref())?;
 
     println!("Installing {}...", deb_asset.name);
-    let deb_str = deb_path.to_str().unwrap();
+    let deb_str = deb_path.to_str().with_context(|| {
+        format!(
+            "Obsidian package path is not valid UTF-8: {}",
+            deb_path.display()
+        )
+    })?;
     privilege::run_privileged("apt-get", &["install", "-y", deb_str])?;
 
     let _ = std::fs::remove_file(&deb_path);

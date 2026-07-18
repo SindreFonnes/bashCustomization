@@ -8,7 +8,9 @@ use anyhow::{Context, Result, bail};
 ///   1. `BASHC_ROOT` environment variable (if set and non-empty)
 ///   2. `$HOME/bashCustomization` (fallback)
 ///
-/// Errors if the resolved path does not exist or is not a directory.
+/// Errors if the resolved path does not exist or is not a directory. The
+/// returned path is canonical and absolute so config symlinks never store a
+/// destination whose meaning depends on the caller's working directory.
 pub fn project_root() -> Result<PathBuf> {
     let bashc_root = std::env::var("BASHC_ROOT").ok().filter(|s| !s.is_empty());
     let home = std::env::var("HOME").ok().filter(|s| !s.is_empty());
@@ -32,7 +34,8 @@ fn resolve_root(bashc_root: Option<&str>, home: Option<&str>) -> Result<PathBuf>
         bail!("project root is not a directory: {}", path.display());
     }
 
-    Ok(path)
+    std::fs::canonicalize(&path)
+        .with_context(|| format!("failed to resolve project root {}", path.display()))
 }
 
 #[cfg(test)]
@@ -45,7 +48,7 @@ mod tests {
         let dir = tempdir().expect("failed to create temp dir");
         let result = resolve_root(Some(dir.path().to_str().unwrap()), None);
         assert!(result.is_ok(), "expected Ok, got: {:?}", result);
-        assert_eq!(result.unwrap(), dir.path());
+        assert_eq!(result.unwrap(), std::fs::canonicalize(dir.path()).unwrap());
     }
 
     #[test]
@@ -57,7 +60,20 @@ mod tests {
 
         let result = resolve_root(None, Some(home.path().to_str().unwrap()));
         assert!(result.is_ok(), "expected Ok, got: {:?}", result);
-        assert_eq!(result.unwrap(), bashc_dir);
+        assert_eq!(result.unwrap(), std::fs::canonicalize(bashc_dir).unwrap());
+    }
+
+    #[test]
+    fn test_root_is_canonicalized_before_use() {
+        let dir = tempdir().expect("failed to create temp dir");
+        let nested = dir.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let lexical_path = nested.join("..").join("nested");
+
+        let resolved = resolve_root(Some(lexical_path.to_str().unwrap()), None).unwrap();
+
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved, std::fs::canonicalize(nested).unwrap());
     }
 
     #[test]

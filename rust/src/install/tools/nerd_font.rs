@@ -120,15 +120,19 @@ fn install_nerd_font_linux() -> Result<()> {
     std::fs::create_dir(&staged_font_dir)?;
 
     println!("Extracting staged font files...");
-    command::run_visible(
-        "tar",
-        &[
-            "-xf",
-            archive_path.to_str().unwrap(),
-            "-C",
-            staged_font_dir.to_str().unwrap(),
-        ],
-    )?;
+    let archive_arg = archive_path.to_str().with_context(|| {
+        format!(
+            "Nerd Font archive path is not valid UTF-8: {}",
+            archive_path.display()
+        )
+    })?;
+    let staged_font_arg = staged_font_dir.to_str().with_context(|| {
+        format!(
+            "Nerd Font staging path is not valid UTF-8: {}",
+            staged_font_dir.display()
+        )
+    })?;
+    command::run_visible("tar", &["-xf", archive_arg, "-C", staged_font_arg])?;
 
     if !contains_font_file(&staged_font_dir)? {
         anyhow::bail!("downloaded Nerd Font archive did not contain any .ttf or .otf files");

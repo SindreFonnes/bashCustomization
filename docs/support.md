@@ -1,6 +1,6 @@
 # bashc Support Matrix
 
-**Updated:** 2026-07-13
+**Updated:** 2026-07-18
 
 This matrix describes the current source tree, not an aspirational migration
 phase. “Detected” means the Rust platform model recognizes the environment.
@@ -10,7 +10,7 @@ what the repository currently proves.
 
 | Environment | Detected | Release target selected by bootstrap | Install baseline | Current verification |
 | --- | --- | --- | --- | --- |
-| macOS x86_64 | Yes | `x86_64-apple-darwin` | Intended | 260 main-crate tests, local dry-run, Bash/Zsh smoke; no clean-host E2E |
+| macOS x86_64 | Yes | `x86_64-apple-darwin` | Intended | 259 main-crate tests, E2E context-safety unit tests, local dry-run, Bash/Zsh smoke; no clean-host E2E |
 | macOS arm64 | Yes | `aarch64-apple-darwin` | Intended | Modeled unit tests and local arm64 dry-run; no clean-host E2E |
 | Ubuntu/Debian x86_64 | Yes | `x86_64-unknown-linux-gnu` | Intended | Unit tests; source-fresh Docker behavior and full-install suites compile but were not executed locally |
 | Ubuntu/Debian arm64 | Yes | `aarch64-unknown-linux-gnu` | Intended | Modeled by unit tests; no arm64 E2E |

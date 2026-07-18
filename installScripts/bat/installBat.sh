@@ -26,7 +26,7 @@ if apt_package_manager_available; then
 
 	# On Debian/Ubuntu, bat is installed as 'batcat' — create a symlink so 'bat' works
 	if command -v batcat &> /dev/null && ! command -v bat &> /dev/null; then
-		local bin_dir="$HOME/.local/bin"
+		bin_dir="$HOME/.local/bin"
 		mkdir -p "$bin_dir"
 		ln -sf "$(command -v batcat)" "$bin_dir/bat"
 		echo "Note: Created symlink $bin_dir/bat -> batcat"

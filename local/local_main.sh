@@ -1,20 +1,38 @@
 # Functions
+_bashc_local_shell_quote () {
+	printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 add_local_variable () {
-	if [[ $3 -eq "false" ]]; then
-		echo -e "$1=\"$2\"" >> $local_dir/local_variables.sh;
-		return;
+	local variable_name=$1
+	case "$variable_name" in
+		''|[!a-zA-Z_]*|*[!a-zA-Z0-9_]*)
+			printf 'bashc: invalid local variable name: %s\n' "$variable_name" >&2
+			return 1
+			;;
+	esac
+
+	if [[ ${3:-false} != "false" ]]; then
+		variable_name="local_$variable_name"
 	fi
 
-	echo -e "local_$1=\"$2\"" >> $local_dir/local_variables.sh;
+	printf '%s=%s\n' "$variable_name" "$(_bashc_local_shell_quote "$2")" >> "$local_dir/local_variables.sh"
 }
 
 add_local_alias () {
-	if [[ $3 -eq "false" ]]; then
-		echo -e "alias $1=\"$2\";" >> $local_dir/local_aliases.sh;
-		return;
+	local alias_name=$1
+	case "$alias_name" in
+		''|*[!a-zA-Z0-9_.-]*)
+			printf 'bashc: invalid local alias name: %s\n' "$alias_name" >&2
+			return 1
+			;;
+	esac
+
+	if [[ ${3:-false} != "false" ]]; then
+		alias_name="local_$alias_name"
 	fi
 
-	echo -e "alias local_$1=\"$2\";" >> $local_dir/local_aliases.sh;
+	printf 'alias %s=%s\n' "$alias_name" "$(_bashc_local_shell_quote "$2")" >> "$local_dir/local_aliases.sh"
 }
 
 # Aliases for managing local
@@ -28,15 +46,15 @@ alias listLocalV="cat $local_dir/local_variables.sh";
 
 # Creating the local files if they do not already exist (owner-only permissions)
 if ! [ -f "$local_dir/local_variables.sh" ]; then
-    touch "$local_dir/local_variables.sh";
-    chmod 600 "$local_dir/local_variables.sh";
+	touch "$local_dir/local_variables.sh";
 fi
+chmod 600 "$local_dir/local_variables.sh";
 
 _bashc_source_file "$local_dir/local_variables.sh" || return 1
 
 if ! [ -f "$local_dir/local_aliases.sh" ]; then
-    touch "$local_dir/local_aliases.sh";
-    chmod 600 "$local_dir/local_aliases.sh";
+	touch "$local_dir/local_aliases.sh";
 fi
+chmod 600 "$local_dir/local_aliases.sh";
 
 _bashc_source_file "$local_dir/local_aliases.sh" || return 1

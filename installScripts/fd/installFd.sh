@@ -26,7 +26,7 @@ if apt_package_manager_available; then
 
 	# On Debian/Ubuntu, fd is installed as 'fdfind' — create a symlink so 'fd' works
 	if command -v fdfind &> /dev/null && ! command -v fd &> /dev/null; then
-		local bin_dir="$HOME/.local/bin"
+		bin_dir="$HOME/.local/bin"
 		mkdir -p "$bin_dir"
 		ln -sf "$(command -v fdfind)" "$bin_dir/fd"
 		echo "Note: Created symlink $bin_dir/fd -> fdfind"

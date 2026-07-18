@@ -83,10 +83,14 @@ target containment rules.
 
 `init.sh` now verifies the downloaded checksum, persists `bashc` under
 `${BASHC_INSTALL_DIR:-$HOME/.mybin}`, clones or validates the repository, and
-adds idempotent Bash and Zsh startup hooks. However, the only local release tag
-is currently `v0.1.0`, which predates config management. Do not advertise the
-remote one-command bootstrap as complete until a config-capable release has
-passed the validation and release gates.
+adds idempotent Bash and Zsh startup hooks. A custom install directory is
+recorded in `$HOME/.config/bashc/install_dir` so later shells put the installed
+binary on `PATH`. Repository and startup-hook setup runs after both the default
+invocation and an explicit `install all`, even when tool installation reports a
+failure, so partially prepared machines can still load the framework and retry.
+However, the only local release tag is currently `v0.1.0`, which predates config
+management. Do not advertise the remote one-command bootstrap as complete until
+a config-capable release has passed the validation and release gates.
 
 ## Validation
 
@@ -97,8 +101,9 @@ tests/validate.sh
 ```
 
 This checks both Rust crates, validates every `.sh` file with Bash and Zsh,
-runs focused ShellCheck gates, and exercises isolated startup/update smoke
-tests. Full distro E2E tests additionally require a running Docker daemon.
+runs a repository-wide error-level ShellCheck gate plus focused warning-level
+checks, and exercises isolated bootstrap/startup/update smoke tests. Full
+distro E2E tests additionally require a running Docker daemon.
 Run `tests/e2e/run.sh` for the source-fresh, non-destructive distro behavior
 tier used by CI and releases. Add `--features full-install-tests` to include
 the slower package-install suites. The runner removes its containers, images,
@@ -114,7 +119,9 @@ advisory, license, crate-ban, and source policy that also gates CI and releases.
 - If startup fails, run `BASHC_SKIP_UPDATE_CHECK=1 BASHC_SKIP_CONFIG_CHECK=1`
   before sourcing `main.sh` and inspect the first reported module error.
 - If `bashc` is missing, rebuild it as above or restore a verified release
-  binary to `$HOME/.mybin/bashc`.
+  binary to `$BASHC_INSTALL_DIR/bashc` (default: `$HOME/.mybin/bashc`). If a
+  bootstrap-selected custom directory is no longer valid, update or remove
+  `$HOME/.config/bashc/install_dir`.
 - Config replacement keeps the previous target as `<target>.bak`; inspect that
   backup before deleting it. Failed replacement and discard operations attempt
   automatic rollback and report the exact staging path if rollback is incomplete.

@@ -91,17 +91,13 @@ fn install_kubectl_direct(platform: &Platform) -> Result<()> {
 
     // Install to /usr/local/bin
     let dest = "/usr/local/bin/kubectl";
-    privilege::run_privileged(
-        "install",
-        &[
-            "-D",
-            "-m",
-            "0755",
-            "--",
-            binary_path.to_str().unwrap(),
-            dest,
-        ],
-    )?;
+    let binary_arg = binary_path.to_str().with_context(|| {
+        format!(
+            "kubectl staging path is not valid UTF-8: {}",
+            binary_path.display()
+        )
+    })?;
+    privilege::run_privileged("install", &["-D", "-m", "0755", "--", binary_arg, dest])?;
 
     let _ = std::fs::remove_file(&binary_path);
     println!("kubectl {version} installed to {dest}");

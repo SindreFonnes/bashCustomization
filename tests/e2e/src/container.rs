@@ -287,7 +287,13 @@ impl TestContainer {
 }
 
 /// Directories to exclude from the Docker build context tar archive.
-const TAR_EXCLUDE_DIRS: &[&str] = &[".git", "target", "rust/target", "node_modules"];
+const TAR_EXCLUDE_DIRS: &[&str] = &[
+    ".git",
+    "target",
+    "rust/target",
+    "tests/e2e/target",
+    "node_modules",
+];
 
 /// Create a tar archive from a directory, suitable for sending to the Docker build API.
 ///
@@ -311,20 +317,87 @@ fn append_dir_filtered(
     {
         let entry = entry?;
         let path = entry.path();
-        let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy();
+        let rel = path.strip_prefix(base).with_context(|| {
+            format!(
+                "archive entry {} escaped build context {}",
+                path.display(),
+                base.display()
+            )
+        })?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("reading file type for {}", path.display()))?;
 
         // Skip excluded directories.
-        if path.is_dir() && TAR_EXCLUDE_DIRS.iter().any(|ex| rel == *ex) {
+        if file_type.is_dir()
+            && TAR_EXCLUDE_DIRS
+                .iter()
+                .any(|excluded| rel == Path::new(excluded))
+        {
             continue;
         }
 
-        if path.is_dir() {
+        // Use directory-entry metadata rather than Path::is_dir(), which
+        // follows symlinks. A repository symlink must be archived as a link,
+        // never traversed outside the checked-out build context.
+        if file_type.is_dir() {
             append_dir_filtered(archive, base, &path)?;
         } else {
             archive
-                .append_path_with_name(&path, &*rel)
+                .append_path_with_name(&path, rel)
                 .with_context(|| format!("adding {} to tar", path.display()))?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn build_context_does_not_follow_directory_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let context = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), "outside").unwrap();
+        symlink(outside.path(), context.path().join("external-link")).unwrap();
+
+        let bytes = create_tar_archive(context.path()).unwrap();
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let paths = archive
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(paths.iter().any(|path| path == Path::new("external-link")));
+        assert!(!paths
+            .iter()
+            .any(|path| path.starts_with("external-link/") && path != Path::new("external-link")));
+    }
+
+    #[test]
+    fn build_context_excludes_e2e_compilation_output() {
+        let context = tempfile::tempdir().unwrap();
+        let target = context.path().join("tests/e2e/target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("artifact"), "large build output").unwrap();
+        std::fs::write(context.path().join("kept"), "source").unwrap();
+
+        let bytes = create_tar_archive(context.path()).unwrap();
+        let mut archive = tar::Archive::new(bytes.as_slice());
+        let paths = archive
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(paths.iter().any(|path| path == Path::new("kept")));
+        assert!(!paths
+            .iter()
+            .any(|path| path.starts_with("tests/e2e/target")));
+    }
 }

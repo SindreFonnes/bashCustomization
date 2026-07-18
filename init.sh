@@ -138,131 +138,223 @@ verify_checksum() {
     echo "Checksum OK"
 }
 
-# --- Main ---
-
-OS=$(detect_os)
-ARCH=$(detect_arch)
-TARGET="${ARCH}-${OS}"
-
-case "$TARGET" in
-    x86_64-apple-darwin|aarch64-apple-darwin|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-unknown-linux-musl)
-        ;;
-    *)
-        echo "Error: No bashc release artifact is produced for ${TARGET}" >&2
-        echo "Supported release targets: x86_64/aarch64 macOS, x86_64/aarch64 glibc Linux, x86_64 Alpine" >&2
-        exit 1
-        ;;
-esac
-
-echo "Detected platform: ${TARGET}"
-
-# Bootstrap doas on Alpine when running as root with no privilege-escalation tool
-bootstrap_doas_alpine
-
-echo "Fetching latest release..."
-
-# Get the latest release download URL
-RELEASE_URL=$(curl_fetch "https://api.github.com/repos/${REPO}/releases/latest" | \
-    grep "browser_download_url.*${BINARY_NAME}-${TARGET}\"" | \
-    head -1 | \
-    cut -d'"' -f4)
-
-if [ -z "$RELEASE_URL" ]; then
-    echo "Error: Could not find a release binary for ${TARGET}" >&2
-    echo "Check https://github.com/${REPO}/releases for available binaries" >&2
-    exit 1
-fi
-
-SHA_URL="${RELEASE_URL}.sha256"
-
-TMPDIR=$(mktemp -d)
-BINARY_PATH="${TMPDIR}/${BINARY_NAME}"
-SHA_PATH="${TMPDIR}/${BINARY_NAME}.sha256"
-STAGED_BINARY=""
 cleanup() {
-    rm -rf "$TMPDIR"
-    if [ -n "$STAGED_BINARY" ]; then
+    if [ -n "${BASHC_TMP_DIR:-}" ]; then
+        rm -rf "$BASHC_TMP_DIR"
+    fi
+    if [ -n "${STAGED_BINARY:-}" ]; then
         rm -f "$STAGED_BINARY"
     fi
+    if [ -n "${STAGED_INSTALL_STATE:-}" ]; then
+        rm -f "$STAGED_INSTALL_STATE"
+    fi
 }
-trap cleanup EXIT HUP INT TERM
 
-echo "Downloading ${BINARY_NAME} for ${TARGET}..."
-curl_fetch -o "$BINARY_PATH" "$RELEASE_URL"
+validate_single_line_path() {
+    _bashc_path_label=$1
+    _bashc_path_value=$2
+    case "$_bashc_path_value" in
+        *'
+'*)
+            echo "Error: ${_bashc_path_label} must not contain a newline" >&2
+            return 1
+            ;;
+    esac
+}
 
-echo "Downloading checksum..."
-curl_fetch -o "$SHA_PATH" "$SHA_URL"
+shell_quote() {
+    # Emit one POSIX-shell word. Newlines are rejected by the caller so command
+    # substitution cannot silently alter the path.
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
 
-# Extract expected hash (first field of sha256 file)
-EXPECTED_HASH=$(cut -d' ' -f1 < "$SHA_PATH")
-verify_checksum "$BINARY_PATH" "$EXPECTED_HASH"
+record_install_dir() {
+    _bashc_state_dir="$HOME/.config/bashc"
+    _bashc_state_file="${_bashc_state_dir}/install_dir"
+    mkdir -p "$_bashc_state_dir"
+    STAGED_INSTALL_STATE=$(mktemp "${_bashc_state_dir}/.install_dir.XXXXXX")
+    printf '%s\n' "$1" > "$STAGED_INSTALL_STATE"
+    chmod 600 "$STAGED_INSTALL_STATE"
+    mv -f "$STAGED_INSTALL_STATE" "$_bashc_state_file"
+    STAGED_INSTALL_STATE=""
+}
 
-chmod +x "$BINARY_PATH"
-
-# Persist the verified binary before running it. The shell framework already
-# adds ~/.mybin to PATH, and BASHC_INSTALL_DIR allows an explicit override.
-INSTALL_DIR=${BASHC_INSTALL_DIR:-"$HOME/.mybin"}
-PERSISTENT_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
-mkdir -p "$INSTALL_DIR"
-STAGED_BINARY=$(mktemp "${INSTALL_DIR}/.bashc.XXXXXX")
-cp "$BINARY_PATH" "$STAGED_BINARY"
-chmod 755 "$STAGED_BINARY"
-mv -f "$STAGED_BINARY" "$PERSISTENT_BINARY"
-STAGED_BINARY=""
-echo "Installed ${BINARY_NAME} to ${PERSISTENT_BINARY}"
+find_git() {
+    # A Homebrew installation performed by the child bashc process cannot
+    # update this parent shell's PATH. Prefer its standard locations before
+    # falling back to the caller's existing PATH.
+    for _bashc_git_candidate in \
+        /opt/homebrew/bin/git \
+        /usr/local/bin/git \
+        /home/linuxbrew/.linuxbrew/bin/git
+    do
+        if [ -x "$_bashc_git_candidate" ]; then
+            printf '%s\n' "$_bashc_git_candidate"
+            return 0
+        fi
+    done
+    command -v git 2>/dev/null
+}
 
 setup_repository_and_shells() {
-    project_root=${BASHC_ROOT:-"$HOME/bashCustomization"}
+    _bashc_project_root=${BASHC_ROOT:-"$HOME/bashCustomization"}
+    validate_single_line_path "BASHC_ROOT" "$_bashc_project_root" || return 1
 
-    if [ ! -d "$project_root" ]; then
-        if ! command -v git >/dev/null 2>&1; then
+    if [ ! -d "$_bashc_project_root" ]; then
+        if ! _bashc_git=$(find_git); then
             echo "Error: git is required to clone bashCustomization after tool setup" >&2
             return 1
         fi
-        echo "Cloning bashCustomization to ${project_root}..."
-        git clone "https://github.com/${REPO}.git" "$project_root"
-    elif [ ! -f "$project_root/main.sh" ]; then
-        echo "Error: ${project_root} exists but does not contain main.sh" >&2
+        echo "Cloning bashCustomization to ${_bashc_project_root}..."
+        "$_bashc_git" clone "https://github.com/${REPO}.git" "$_bashc_project_root"
+    elif [ ! -f "$_bashc_project_root/main.sh" ]; then
+        echo "Error: ${_bashc_project_root} exists but does not contain main.sh" >&2
         return 1
     fi
 
-    add_startup_hook "$HOME/.bashrc" "$project_root"
-    add_startup_hook "$HOME/.zshrc" "$project_root"
+    _bashc_project_root=$(CDPATH='' cd -P -- "$_bashc_project_root" && pwd -P)
+
+    add_startup_hook "$HOME/.bashrc" "$_bashc_project_root"
+    add_startup_hook "$HOME/.zshrc" "$_bashc_project_root"
 
     echo "Shell startup configured for Bash and Zsh."
-    echo "Start a new shell or source ${project_root}/main.sh to load the framework."
+    echo "Start a new shell or source ${_bashc_project_root}/main.sh to load the framework."
 }
 
 add_startup_hook() {
-    startup_file=$1
-    project_root=$2
+    _bashc_startup_file=$1
+    _bashc_hook_project_root=$2
+    validate_single_line_path "project root" "$_bashc_hook_project_root" || return 1
+    _bashc_startup_assignment="export BASHC_ROOT=$(shell_quote "$_bashc_hook_project_root")"
+    _bashc_legacy_assignment="export BASHC_ROOT=\"$_bashc_hook_project_root\""
 
-    if [ -f "$startup_file" ] && \
-       grep -F "export BASHC_ROOT=\"$project_root\"" "$startup_file" >/dev/null 2>&1; then
+    if [ -f "$_bashc_startup_file" ] && \
+       { grep -F -x "$_bashc_startup_assignment" "$_bashc_startup_file" >/dev/null 2>&1 || \
+         grep -F -x "$_bashc_legacy_assignment" "$_bashc_startup_file" >/dev/null 2>&1; }; then
         return 0
     fi
 
     {
         printf '\n# bashCustomization\n'
-        printf 'export BASHC_ROOT="%s"\n' "$project_root"
+        printf '%s\n' "$_bashc_startup_assignment"
         # These variables must be expanded by the user's future shell.
         # shellcheck disable=SC2016
         printf 'if [ -f "$BASHC_ROOT/main.sh" ]; then\n'
         # shellcheck disable=SC2016
         printf '    . "$BASHC_ROOT/main.sh"\n'
         printf 'fi\n'
-    } >> "$startup_file"
+    } >> "$_bashc_startup_file"
 }
 
-# Run bashc with provided arguments, or default to "install all"
-if [ $# -eq 0 ]; then
-    echo "Running: ${BINARY_NAME} install all"
-    "$PERSISTENT_BINARY" install all
-    setup_repository_and_shells
-else
-    echo "Running: ${BINARY_NAME} $*"
-    "$PERSISTENT_BINARY" "$@"
-fi
+run_requested_action() {
+    _bashc_setup_after_install=false
+    if [ $# -eq 0 ]; then
+        set -- install all
+        _bashc_setup_after_install=true
+    elif [ "$#" -eq 2 ] && [ "$1" = "install" ] && [ "$2" = "all" ]; then
+        _bashc_setup_after_install=true
+    fi
 
-echo ""
-echo "Done. bashc is installed at ${PERSISTENT_BINARY}."
+    echo "Running: ${BINARY_NAME} $*"
+    if "$PERSISTENT_BINARY" "$@"; then
+        _bashc_command_status=0
+    else
+        _bashc_command_status=$?
+    fi
+
+    _bashc_setup_status=0
+    if [ "$_bashc_setup_after_install" = true ]; then
+        if setup_repository_and_shells; then
+            _bashc_setup_status=0
+        else
+            _bashc_setup_status=$?
+        fi
+    fi
+
+    if [ "$_bashc_command_status" -ne 0 ]; then
+        return "$_bashc_command_status"
+    fi
+    return "$_bashc_setup_status"
+}
+
+# --- Main ---
+
+main() {
+    OS=$(detect_os)
+    ARCH=$(detect_arch)
+    TARGET="${ARCH}-${OS}"
+
+    case "$TARGET" in
+        x86_64-apple-darwin|aarch64-apple-darwin|x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu|x86_64-unknown-linux-musl)
+            ;;
+        *)
+            echo "Error: No bashc release artifact is produced for ${TARGET}" >&2
+            echo "Supported release targets: x86_64/aarch64 macOS, x86_64/aarch64 glibc Linux, x86_64 Alpine" >&2
+            return 1
+            ;;
+    esac
+
+    echo "Detected platform: ${TARGET}"
+
+    # Bootstrap doas on Alpine when running as root with no privilege-escalation tool
+    bootstrap_doas_alpine
+
+    echo "Fetching latest release..."
+
+    # Get the latest release download URL
+    RELEASE_URL=$(curl_fetch "https://api.github.com/repos/${REPO}/releases/latest" | \
+        grep "browser_download_url.*${BINARY_NAME}-${TARGET}\"" | \
+        head -1 | \
+        cut -d'"' -f4)
+
+    if [ -z "$RELEASE_URL" ]; then
+        echo "Error: Could not find a release binary for ${TARGET}" >&2
+        echo "Check https://github.com/${REPO}/releases for available binaries" >&2
+        return 1
+    fi
+
+    SHA_URL="${RELEASE_URL}.sha256"
+
+    BASHC_TMP_DIR=$(mktemp -d)
+    BINARY_PATH="${BASHC_TMP_DIR}/${BINARY_NAME}"
+    SHA_PATH="${BASHC_TMP_DIR}/${BINARY_NAME}.sha256"
+    STAGED_BINARY=""
+    STAGED_INSTALL_STATE=""
+    trap cleanup EXIT HUP INT TERM
+
+    echo "Downloading ${BINARY_NAME} for ${TARGET}..."
+    curl_fetch -o "$BINARY_PATH" "$RELEASE_URL"
+
+    echo "Downloading checksum..."
+    curl_fetch -o "$SHA_PATH" "$SHA_URL"
+
+    # Extract expected hash (first field of sha256 file)
+    EXPECTED_HASH=$(cut -d' ' -f1 < "$SHA_PATH")
+    verify_checksum "$BINARY_PATH" "$EXPECTED_HASH"
+
+    chmod +x "$BINARY_PATH"
+
+    # Persist the verified binary before running it. The selected install path
+    # is recorded so future shells can put the same directory on PATH.
+    INSTALL_DIR=${BASHC_INSTALL_DIR:-"$HOME/.mybin"}
+    validate_single_line_path "BASHC_INSTALL_DIR" "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    INSTALL_DIR=$(CDPATH='' cd -P -- "$INSTALL_DIR" && pwd -P)
+    PERSISTENT_BINARY="${INSTALL_DIR}/${BINARY_NAME}"
+    STAGED_BINARY=$(mktemp "${INSTALL_DIR}/.bashc.XXXXXX")
+    cp "$BINARY_PATH" "$STAGED_BINARY"
+    chmod 755 "$STAGED_BINARY"
+    mv -f "$STAGED_BINARY" "$PERSISTENT_BINARY"
+    STAGED_BINARY=""
+    record_install_dir "$INSTALL_DIR"
+    echo "Installed ${BINARY_NAME} to ${PERSISTENT_BINARY}"
+
+    run_requested_action "$@"
+
+    echo ""
+    echo "Done. bashc is installed at ${PERSISTENT_BINARY}."
+}
+
+if [ "${BASHC_INIT_SOURCE_ONLY:-}" != "1" ]; then
+    main "$@"
+fi

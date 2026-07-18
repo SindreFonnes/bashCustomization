@@ -1,6 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
 
@@ -56,6 +57,13 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         return Ok(());
     }
 
+    // Homebrew may already be installed at its standard prefix without that
+    // prefix being active in this process (especially on Apple Silicon and
+    // fresh Linux installs). Activate it before attempting another install.
+    if let Some(brew) = known_brew_executable(platform) {
+        return activate_homebrew(&brew);
+    }
+
     if is_brew_failed() {
         bail!("Homebrew installation previously failed this run — skipping");
     }
@@ -64,83 +72,93 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     command::require_all(&["bash", "curl"])
         .context("Homebrew bootstrap prerequisites are not satisfied")?;
 
-    if platform.is_mac() {
-        let result = download::run_verified_script(
-            HOMEBREW_INSTALL_URL,
-            HOMEBREW_INSTALL_SHA256,
-            "env",
-            &["NONINTERACTIVE=1", "/bin/bash"],
-            &[],
+    let result = download::run_verified_script(
+        HOMEBREW_INSTALL_URL,
+        HOMEBREW_INSTALL_SHA256,
+        "env",
+        &["NONINTERACTIVE=1", "/bin/bash"],
+        &[],
+    );
+
+    if result.is_err() {
+        eprintln!(
+            "Homebrew installation failed — falling back to native package manager for remaining tools."
         );
-
-        if result.is_err() {
-            eprintln!(
-                "Homebrew installation failed — falling back to native package manager for remaining tools."
-            );
-            set_brew_failed();
-            return result;
-        }
-
-        // Activate brew in current process by parsing `brew shellenv`
-        if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-            let shellenv = command::run("/opt/homebrew/bin/brew", &["shellenv"])?;
-            apply_shellenv(&shellenv);
-        }
-    } else if platform.is_linux() {
-        let result = download::run_verified_script(
-            HOMEBREW_INSTALL_URL,
-            HOMEBREW_INSTALL_SHA256,
-            "env",
-            &["NONINTERACTIVE=1", "/bin/bash"],
-            &[],
-        );
-
-        if result.is_err() {
-            eprintln!(
-                "Homebrew installation failed — falling back to native package manager for remaining tools."
-            );
-            set_brew_failed();
-            return result;
-        }
-
-        // Activate Linuxbrew in the current process
-        if std::path::Path::new("/home/linuxbrew/.linuxbrew/bin/brew").exists() {
-            let shellenv = command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
-            apply_shellenv(&shellenv);
-        }
+        set_brew_failed();
+        return result;
     }
 
-    if !has_brew() {
+    let Some(brew) = known_brew_executable(platform) else {
         set_brew_failed();
-        bail!("Homebrew installation completed but brew is not on PATH");
+        bail!(
+            "Homebrew installation completed but no brew executable was found at a supported prefix"
+        );
+    };
+
+    if let Err(error) = activate_homebrew(&brew) {
+        set_brew_failed();
+        return Err(error).context("Homebrew installed but could not be activated");
     }
 
     Ok(())
 }
 
-/// Parse `brew shellenv` output and apply env vars to the current process.
-///
-/// Handles `$PATH`/`${PATH}` expansion so we don't clobber the process PATH
-/// with a literal `$PATH` string.
-fn apply_shellenv(shellenv: &str) {
-    for line in shellenv.lines() {
-        // Parse lines like: export HOMEBREW_PREFIX="/opt/homebrew"
-        if let Some(rest) = line.strip_prefix("export ")
-            && let Some((key, value)) = rest.split_once('=')
-        {
-            let mut value = value.trim_matches('"').trim_matches(';').to_string();
-            // Expand $PATH / ${PATH} references against current env
-            if let Ok(current) = std::env::var(key) {
-                value = value
-                    .replace(&format!("${{{key}}}"), &current)
-                    .replace(&format!("${key}"), &current);
-            }
-            // SAFETY: runs during single-threaded init before installs.
-            unsafe {
-                std::env::set_var(key, &value);
+fn known_brew_executable(platform: &Platform) -> Option<PathBuf> {
+    let candidates: &[&str] = if platform.is_mac() {
+        &["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+    } else {
+        &["/home/linuxbrew/.linuxbrew/bin/brew"]
+    };
+
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+}
+
+/// Activate a verified local Homebrew installation without evaluating or
+/// partially parsing the shell program emitted by `brew shellenv`.
+fn activate_homebrew(brew: &Path) -> Result<()> {
+    let brew_program = path_arg(brew)?;
+    let prefix = PathBuf::from(command::run(brew_program, &["--prefix"])?);
+    if !prefix.is_absolute() {
+        bail!(
+            "Homebrew returned a non-absolute prefix from {}: {}",
+            brew.display(),
+            prefix.display()
+        );
+    }
+
+    let path = homebrew_path(&prefix, std::env::var_os("PATH").as_deref())?;
+    // SAFETY: installer orchestration is single-threaded and updates the
+    // process environment before spawning any subsequent tool installers.
+    unsafe {
+        std::env::set_var("HOMEBREW_PREFIX", &prefix);
+        std::env::set_var("PATH", path);
+    }
+
+    if !has_brew() {
+        bail!(
+            "Homebrew executable {} is still unavailable after activating prefix {}",
+            brew.display(),
+            prefix.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn homebrew_path(prefix: &Path, current: Option<&OsStr>) -> Result<OsString> {
+    let mut entries = vec![prefix.join("bin"), prefix.join("sbin")];
+    if let Some(current) = current {
+        for entry in std::env::split_paths(current) {
+            if !entries.contains(&entry) {
+                entries.push(entry);
             }
         }
     }
+
+    std::env::join_paths(entries).context("constructing PATH for Homebrew activation")
 }
 
 /// Install a package via brew.
@@ -697,84 +715,43 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // apply_shellenv
+    // Homebrew activation PATH
     // -----------------------------------------------------------------------
 
     #[test]
-    fn apply_shellenv_sets_simple_var() {
-        let input = r#"export HOMEBREW_PREFIX="/opt/homebrew""#;
-        apply_shellenv(input);
-        assert_eq!(std::env::var("HOMEBREW_PREFIX").unwrap(), "/opt/homebrew");
-        // Clean up
-        unsafe {
-            std::env::remove_var("HOMEBREW_PREFIX");
-        }
-    }
+    fn homebrew_path_prepends_required_entries_without_duplicates() {
+        let prefix = Path::new("/opt/homebrew");
+        let current = std::env::join_paths([
+            Path::new("/usr/bin"),
+            Path::new("/opt/homebrew/bin"),
+            Path::new("/bin"),
+        ])
+        .unwrap();
 
-    #[test]
-    fn apply_shellenv_expands_path_braces() {
-        // Set a known value so expansion is predictable
-        unsafe {
-            std::env::set_var("TEST_SHELLENV_PATH", "/original");
-        }
+        let path = homebrew_path(prefix, Some(&current)).unwrap();
+        let entries = std::env::split_paths(&path).collect::<Vec<_>>();
 
-        let input = r#"export TEST_SHELLENV_PATH="/opt/homebrew/bin:${TEST_SHELLENV_PATH}""#;
-        apply_shellenv(input);
         assert_eq!(
-            std::env::var("TEST_SHELLENV_PATH").unwrap(),
-            "/opt/homebrew/bin:/original",
-            "should expand ${{TEST_SHELLENV_PATH}} to the current value"
+            entries,
+            vec![
+                prefix.join("bin"),
+                prefix.join("sbin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
         );
-        // Clean up
-        unsafe {
-            std::env::remove_var("TEST_SHELLENV_PATH");
-        }
     }
 
     #[test]
-    fn apply_shellenv_expands_path_dollar() {
-        unsafe {
-            std::env::set_var("TEST_SHELLENV_PATH2", "/existing");
-        }
+    fn homebrew_path_works_without_an_existing_path() {
+        let prefix = Path::new("/home/linuxbrew/.linuxbrew");
 
-        let input = r#"export TEST_SHELLENV_PATH2="/new/bin:$TEST_SHELLENV_PATH2""#;
-        apply_shellenv(input);
+        let path = homebrew_path(prefix, None).unwrap();
+
         assert_eq!(
-            std::env::var("TEST_SHELLENV_PATH2").unwrap(),
-            "/new/bin:/existing",
-            "should expand $TEST_SHELLENV_PATH2 to the current value"
+            std::env::split_paths(&path).collect::<Vec<_>>(),
+            vec![prefix.join("bin"), prefix.join("sbin")]
         );
-        unsafe {
-            std::env::remove_var("TEST_SHELLENV_PATH2");
-        }
-    }
-
-    #[test]
-    fn apply_shellenv_no_clobber_when_var_unset() {
-        // If the var doesn't exist yet, literal value should be set as-is
-        // (no expansion needed since there's nothing to expand from)
-        unsafe {
-            std::env::remove_var("TEST_SHELLENV_NEW");
-        }
-        let input = r#"export TEST_SHELLENV_NEW="/brand/new/path""#;
-        apply_shellenv(input);
-        assert_eq!(
-            std::env::var("TEST_SHELLENV_NEW").unwrap(),
-            "/brand/new/path"
-        );
-        unsafe {
-            std::env::remove_var("TEST_SHELLENV_NEW");
-        }
-    }
-
-    #[test]
-    fn apply_shellenv_skips_non_export_lines() {
-        let input = "# comment\neval \"something\"\nexport TEST_SHELLENV_ONLY=\"yes\"";
-        apply_shellenv(input);
-        assert_eq!(std::env::var("TEST_SHELLENV_ONLY").unwrap(), "yes");
-        unsafe {
-            std::env::remove_var("TEST_SHELLENV_ONLY");
-        }
     }
 
     // -----------------------------------------------------------------------

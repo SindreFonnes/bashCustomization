@@ -165,23 +165,33 @@ update_packages () {
 }
 
 # Takes the NAME, not the actual variable, of a variable as an argument and changes the string in the variable to be lowercase
+_bashc_change_variable_case () {
+	local variable_name=$1
+	local source_characters=$2
+	local target_characters=$3
+	local variable_value
+
+	case "$variable_name" in
+		''|[!a-zA-Z_]*|*[!a-zA-Z0-9_]*)
+			printf 'bashc: invalid variable name: %s\n' "$variable_name" >&2
+			return 1
+			;;
+	esac
+
+	# The identifier is validated before indirection, so eval cannot introduce
+	# syntax. printf -v works in the macOS system Bash as well as Zsh, unlike
+	# Bash namerefs (`local -n`), which require a newer Bash.
+	eval "variable_value=\"\${$variable_name}\""
+	variable_value=$(printf '%s' "$variable_value" | tr "$source_characters" "$target_characters") || return 1
+	printf -v "$variable_name" '%s' "$variable_value"
+}
+
 variable_to_lowercase () {
-	if [[ $PROFILE_SHELL == "bash" ]]; then
-		local -n variable_to_modify=$1;
-		variable_to_modify=$(echo "$variable_to_modify" | tr '[:upper:]' '[:lower:]');
-	else
-		# zsh does not support local -n (namerefs), use eval as a portable fallback
-		eval "$1=\"\$(echo \"\${$1}\" | tr '[:upper:]' '[:lower:]')\""
-	fi
+	_bashc_change_variable_case "$1" '[:upper:]' '[:lower:]'
 }
 
 variable_to_uppercase () {
-	if [[ $PROFILE_SHELL == "bash" ]]; then
-		local -n variable_to_modify=$1;
-		variable_to_modify=$(echo "$variable_to_modify" | tr '[:lower:]' '[:upper:]');
-	else
-		eval "$1=\"\$(echo \"\${$1}\" | tr '[:lower:]' '[:upper:]')\""
-	fi
+	_bashc_change_variable_case "$1" '[:lower:]' '[:upper:]'
 }
 
 pushd_wrapper () {
@@ -232,8 +242,8 @@ get_all_files_bellow_directory () {
 		fi
 	done
 
-	for entry in ${all_files[@]}; do
-		echo $entry;
+	for entry in "${all_files[@]}"; do
+		echo "$entry";
 	done
 }
 
