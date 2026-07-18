@@ -3,11 +3,11 @@
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use similar::TextDiff;
 
 use crate::common::platform::Platform;
-use crate::configs::manifest::{filter_by_name, load_manifest};
+use crate::configs::manifest::{load_manifest, select_entries};
 use crate::configs::state::{detect_state, load_self_managed};
 use crate::configs::{ConfigEntry, EntryState, display_target, format_source, home_dir};
 
@@ -25,24 +25,7 @@ use crate::configs::{ConfigEntry, EntryState, display_target, format_source, hom
 pub fn run_diff(project_root: &Path, platform: &Platform, filter_name: Option<&str>) -> Result<()> {
     let home_path = home_dir()?;
 
-    let all_entries = load_manifest(project_root, platform)?;
-
-    let entries: Vec<ConfigEntry> = if let Some(name) = filter_name {
-        let filtered = filter_by_name(&all_entries, name);
-        if filtered.is_empty() {
-            let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
-            names.sort();
-            names.dedup();
-            bail!(
-                "No config named '{}'. Available: {}",
-                name,
-                names.join(", ")
-            );
-        }
-        filtered
-    } else {
-        all_entries
-    };
+    let entries = select_entries(load_manifest(project_root, platform)?, filter_name)?;
 
     let self_managed = load_self_managed(project_root)?;
 

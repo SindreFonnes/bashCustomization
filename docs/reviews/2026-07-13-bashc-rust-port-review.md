@@ -7,8 +7,8 @@
 > `docs/plans/2026-07-13-bashc-rust-port-remediation.md` and
 > `docs/support.md`.
 
-**Date:** 2026-07-13  
-**Status:** Complete  
+**Date:** 2026-07-13<br>
+**Status:** Complete<br>
 **Scope:** The Rust `bashc` implementation, its integration with the shell framework, the migration specifications and plans, bootstrap and release paths, configuration management, tests, portability, maintainability, and operational safeguards.
 
 ## Executive summary

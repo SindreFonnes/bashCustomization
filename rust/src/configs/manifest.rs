@@ -62,6 +62,31 @@ pub fn filter_by_name(entries: &[ConfigEntry], name: &str) -> Vec<ConfigEntry> {
     entries.iter().filter(|e| e.name == name).cloned().collect()
 }
 
+/// Select an optional named subset and produce one consistent unknown-name
+/// error for every configs subcommand.
+pub fn select_entries(
+    entries: Vec<ConfigEntry>,
+    filter_name: Option<&str>,
+) -> Result<Vec<ConfigEntry>> {
+    let Some(name) = filter_name else {
+        return Ok(entries);
+    };
+
+    let filtered = filter_by_name(&entries, name);
+    if !filtered.is_empty() {
+        return Ok(filtered);
+    }
+
+    let mut available: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+    available.sort_unstable();
+    available.dedup();
+    anyhow::bail!(
+        "No config named '{}'. Available: {}",
+        name,
+        available.join(", ")
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -749,6 +774,18 @@ target = "~/.config/zellij/config.kdl"
 
         let none = filter_by_name(&all, "nonexistent");
         assert!(none.is_empty());
+
+        let selected = select_entries(all.clone(), Some("claude")).unwrap();
+        assert_eq!(selected.len(), 2);
+        assert!(selected.iter().all(|entry| entry.name == "claude"));
+
+        let error = select_entries(all.clone(), Some("missing")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "No config named 'missing'. Available: claude, zellij"
+        );
+
+        assert_eq!(select_entries(all.clone(), None).unwrap().len(), all.len());
     }
 
     #[test]

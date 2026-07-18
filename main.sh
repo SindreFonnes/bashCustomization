@@ -3,8 +3,12 @@
 ## Bash customization home
 export bashC="${BASHC_ROOT:-$HOME/bashCustomization}";
 export BASHC_ROOT="$bashC"
+# Used by dynamically sourced local modules.
+# shellcheck disable=SC2034
 local_dir="$bashC/local";
 
+# BASHC_ROOT deliberately supports alternate roots.
+# shellcheck disable=SC1091
 if ! . "$bashC/general_functions.sh"; then
     printf 'bashc: failed to load core shell functions\n' >&2
     return 1
@@ -53,8 +57,11 @@ check_for_shell_update_once_a_day () {
     printf '%s\n' "$current_date" > "$path_to_shell_update"
 }
 
+# A network or reload failure must not prevent the already-installed shell
+# configuration (including the local config drift check) from loading. The
+# unchanged date marker makes the updater retry on the next shell start.
 if ! check_for_shell_update_once_a_day; then
-    return 1
+    true
 fi
 
 bashc_check_configs

@@ -3,12 +3,12 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use dialoguer::Confirm;
 use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
-use crate::configs::manifest::{filter_by_name, load_manifest};
+use crate::configs::manifest::{load_manifest, select_entries};
 use crate::configs::state::{
     SelfManagedEntry, detect_state, is_self_managed, load_self_managed, remove_self_managed,
 };
@@ -29,27 +29,7 @@ pub fn run_unlink(
 ) -> Result<()> {
     let home_path = home_dir()?;
 
-    let all_entries = load_manifest(project_root, platform)?;
-
-    let entries: Vec<ConfigEntry> = if let Some(name) = filter_name {
-        let filtered = filter_by_name(&all_entries, name);
-        if filtered.is_empty() {
-            let available: Vec<&str> = {
-                let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
-                names.sort();
-                names.dedup();
-                names
-            };
-            bail!(
-                "No config named '{}'. Available: {}",
-                name,
-                available.join(", ")
-            );
-        }
-        filtered
-    } else {
-        all_entries
-    };
+    let entries = select_entries(load_manifest(project_root, platform)?, filter_name)?;
 
     require_target_authority(&entries, &home_path, allow_outside_home)?;
 
@@ -86,50 +66,42 @@ fn write_unlink(
 
         match state {
             EntryState::Linked | EntryState::LinkedMissingSource => {
-                // Remove the symlink.
-                std::fs::remove_file(&entry.target).map_err(|e| {
-                    anyhow::anyhow!("Failed to remove symlink {}: {}", entry.target.display(), e)
-                })?;
+                let bak_path = PathBuf::from(format!("{}.bak", entry.target.display()));
+                let bak_exists = bak_path.exists() || bak_path.symlink_metadata().is_ok();
+                let do_restore = if !bak_exists {
+                    false
+                } else if yes || !interactive {
+                    true
+                } else {
+                    Confirm::with_theme(&ColorfulTheme::default())
+                        .with_prompt(format!("Restore backup {}?", bak_path.display()))
+                        .default(true)
+                        .interact()
+                        .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
+                };
+
+                if do_restore {
+                    restore_backup_transactional(entry, &bak_path)?;
+                } else {
+                    std::fs::remove_file(&entry.target).map_err(|e| {
+                        anyhow::anyhow!(
+                            "Failed to remove symlink {}: {}",
+                            entry.target.display(),
+                            e
+                        )
+                    })?;
+                }
 
                 // Also remove from self-managed list if present (clean up stale marker).
                 if is_self_managed(self_managed, &entry.target) {
                     remove_self_managed(project_root, &entry.target.to_string_lossy())?;
                 }
 
-                // Check for a .bak file to restore.
-                let bak_path = PathBuf::from(format!("{}.bak", entry.target.display()));
-                let bak_exists = bak_path.exists() || bak_path.symlink_metadata().is_ok();
-
-                if bak_exists {
-                    let do_restore = if yes || !interactive {
-                        true
-                    } else {
-                        Confirm::with_theme(&ColorfulTheme::default())
-                            .with_prompt(format!("Restore backup {}?", bak_path.display()))
-                            .default(true)
-                            .interact()
-                            .map_err(|e| anyhow::anyhow!("Prompt failed: {}", e))?
-                    };
-
-                    if do_restore {
-                        std::fs::rename(&bak_path, &entry.target).map_err(|e| {
-                            anyhow::anyhow!(
-                                "Failed to restore backup {} to {}: {}",
-                                bak_path.display(),
-                                entry.target.display(),
-                                e
-                            )
-                        })?;
-                        writeln!(
-                            writer,
-                            "  \u{2713} {source_display} \u{2192} {target_display} (unlinked, backup restored)"
-                        )?;
-                    } else {
-                        writeln!(
-                            writer,
-                            "  \u{2713} {source_display} \u{2192} {target_display} (unlinked)"
-                        )?;
-                    }
+                if do_restore {
+                    writeln!(
+                        writer,
+                        "  \u{2713} {source_display} \u{2192} {target_display} (unlinked, backup restored)"
+                    )?;
                 } else {
                     writeln!(
                         writer,
@@ -193,6 +165,62 @@ fn write_unlink(
     }
 
     Ok(())
+}
+
+fn restore_backup_transactional(entry: &ConfigEntry, backup: &Path) -> Result<()> {
+    restore_backup_transactional_with(entry, backup, |from, to| {
+        std::fs::rename(from, to).map_err(anyhow::Error::from)
+    })
+}
+
+fn restore_backup_transactional_with(
+    entry: &ConfigEntry,
+    backup: &Path,
+    restore: impl FnOnce(&Path, &Path) -> Result<()>,
+) -> Result<()> {
+    let parent = entry.target.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot stage symlink without a parent: {}",
+            entry.target.display()
+        )
+    })?;
+    let staging = tempfile::Builder::new()
+        .prefix(".bashc-unlink-")
+        .tempdir_in(parent)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create unlink staging directory in {}: {}",
+                parent.display(),
+                e
+            )
+        })?;
+    let staged_link = staging.path().join("managed-link");
+
+    std::fs::rename(&entry.target, &staged_link).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to stage symlink {} at {}: {}",
+            entry.target.display(),
+            staged_link.display(),
+            e
+        )
+    })?;
+
+    if let Err(restore_error) = restore(backup, &entry.target) {
+        return match std::fs::rename(&staged_link, &entry.target) {
+            Ok(()) => Err(restore_error.context("backup restore failed; managed link restored")),
+            Err(rollback_error) => {
+                let recovery_dir = staging.keep();
+                Err(anyhow::anyhow!(
+                    "Backup restore failed: {restore_error:#}. Restoring the managed link also failed: {rollback_error}. The link was kept at {}",
+                    recovery_dir.join("managed-link").display()
+                ))
+            }
+        };
+    }
+
+    staging
+        .close()
+        .map_err(|e| anyhow::anyhow!("Backup restored but failed to remove the staged link: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +369,68 @@ mod tests {
         let content = std::fs::read_to_string(&target).unwrap();
         assert_eq!(content, "original content");
         assert!(output.contains("(unlinked, backup restored)"));
+    }
+
+    #[test]
+    fn failed_backup_restore_preserves_managed_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&backup, "original content").unwrap();
+        symlink(&source, &target).unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let error = restore_backup_transactional_with(&entry, &backup, |_, _| {
+            Err(anyhow::anyhow!("injected restore failure"))
+        })
+        .expect_err("injected restore failure should be returned");
+
+        assert!(error.to_string().contains("managed link restored"));
+        assert!(target.is_symlink());
+        assert_eq!(std::fs::read_link(&target).unwrap(), source);
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "original content"
+        );
+    }
+
+    #[test]
+    fn failed_backup_and_link_rollback_keeps_recovery_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&backup, "original content").unwrap();
+        symlink(&source, &target).unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let error = restore_backup_transactional_with(&entry, &backup, |_, target| {
+            std::fs::create_dir(target)?;
+            Err(anyhow::anyhow!("injected restore failure"))
+        })
+        .expect_err("injected restore and rollback failure should be returned");
+
+        assert!(error.to_string().contains("The link was kept at"));
+        let recovery_dir = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|candidate| {
+                candidate
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bashc-unlink-")
+            })
+            .expect("recovery directory should persist");
+        let recovery_link = recovery_dir.path().join("managed-link");
+        assert!(recovery_link.is_symlink());
+        assert_eq!(std::fs::read_link(recovery_link).unwrap(), source);
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "original content"
+        );
     }
 
     // ── Test 5: Unlink removes self-managed marker when yes=true ─────────────

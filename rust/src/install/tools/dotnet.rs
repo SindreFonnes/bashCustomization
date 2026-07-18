@@ -25,7 +25,10 @@ impl crate::install::Installer for DotnetInstaller {
     }
 
     fn is_applicable(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+        platform.is_mac()
+            || (platform.is_debian() && read_os_release().is_ok())
+            || platform.is_fedora()
+            || platform.is_nixos()
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
@@ -142,6 +145,12 @@ fn parse_os_release_content(content: &str) -> Result<(String, String)> {
         );
     }
 
+    if id != "ubuntu" && id != "debian" {
+        bail!(
+            "Microsoft's .NET apt repository is supported only on exact Ubuntu or Debian hosts; detected '{id}'. Debian-family derivatives need an explicit mapping to their parent repository coordinates"
+        );
+    }
+
     Ok((id, version_id))
 }
 
@@ -186,5 +195,13 @@ mod tests {
         let content = "ID=ubuntu\nVERSION_ID=\n";
         let result = parse_os_release_content(content);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_debian_derivative_errors_before_repo_setup() {
+        let content = "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\nVERSION_ID=\"22\"\n";
+        let error = parse_os_release_content(content).unwrap_err();
+        assert!(error.to_string().contains("exact Ubuntu or Debian"));
+        assert!(error.to_string().contains("linuxmint"));
     }
 }

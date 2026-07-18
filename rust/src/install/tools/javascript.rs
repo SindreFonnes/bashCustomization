@@ -69,7 +69,7 @@ fn install_nvm() -> Result<()> {
         println!("nvm already installed, checking Node.js...");
     }
 
-    if !nvm_command_exists("node") {
+    if !nvm_managed_command_exists("node") {
         println!("Installing latest Node.js LTS via nvm...");
         command::run_visible(
             "bash",
@@ -144,14 +144,15 @@ fn nvm_shell_exists() -> bool {
         .unwrap_or(false)
 }
 
-fn nvm_command_exists(name: &str) -> bool {
-    if command::exists(name) {
-        return true;
-    }
-
+fn nvm_managed_command_exists(name: &str) -> bool {
     let Some(versions_dir) = nvm_dir().map(|directory| directory.join("versions/node")) else {
         return false;
     };
+
+    command_exists_in_nvm_versions(&versions_dir, name)
+}
+
+fn command_exists_in_nvm_versions(versions_dir: &std::path::Path, name: &str) -> bool {
     let Ok(versions) = std::fs::read_dir(versions_dir) else {
         return false;
     };
@@ -187,13 +188,15 @@ fn bun_exists() -> bool {
 }
 
 fn yarn_exists() -> bool {
-    nvm_command_exists("yarn") || user_file_exists(&[".yarn/bin/yarn", ".local/bin/yarn"])
+    command::exists("yarn")
+        || nvm_managed_command_exists("yarn")
+        || user_file_exists(&[".yarn/bin/yarn", ".local/bin/yarn"])
 }
 
 fn missing_javascript_components() -> Vec<&'static str> {
     [
         ("nvm", nvm_shell_exists()),
-        ("node", nvm_command_exists("node")),
+        ("node", nvm_managed_command_exists("node")),
         ("pnpm", pnpm_exists()),
         ("bun", bun_exists()),
         ("yarn", yarn_exists()),
@@ -206,7 +209,7 @@ fn missing_javascript_components() -> Vec<&'static str> {
 fn javascript_installation_state() -> InstallationState {
     classify_javascript_components([
         nvm_shell_exists(),
-        nvm_command_exists("node"),
+        nvm_managed_command_exists("node"),
         pnpm_exists(),
         bun_exists(),
         yarn_exists(),
@@ -264,5 +267,17 @@ mod tests {
             state,
             InstallationState::Incomplete("missing pnpm, yarn".to_string())
         );
+    }
+
+    #[test]
+    fn finds_node_only_inside_an_nvm_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let versions_dir = dir.path().join("versions/node");
+        let node = versions_dir.join("v22.0.0/bin/node");
+        std::fs::create_dir_all(node.parent().unwrap()).unwrap();
+
+        assert!(!command_exists_in_nvm_versions(&versions_dir, "node"));
+        std::fs::write(&node, "test executable").unwrap();
+        assert!(command_exists_in_nvm_versions(&versions_dir, "node"));
     }
 }

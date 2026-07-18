@@ -1,7 +1,7 @@
 # bashc Rust Port Remediation Plan
 
-**Date:** 2026-07-13  
-**Source review:** `docs/reviews/2026-07-13-bashc-rust-port-review.md`  
+**Date:** 2026-07-13<br>
+**Source review:** `docs/reviews/2026-07-13-bashc-rust-port-review.md`<br>
 **Objective:** Make the Rust-assisted shell framework dependable for supported fresh-machine setup without losing the readable, current-shell behavior that belongs in shell.
 
 ## Status legend

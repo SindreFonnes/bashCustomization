@@ -1,6 +1,6 @@
 # Network Artifact Verification Policy
 
-**Effective date:** 2026-07-13  
+**Effective date:** 2026-07-13<br>
 **Scope:** The supported `init.sh` and Rust `bashc install` paths.
 
 The shell files under `installScripts/` are retained as readable historical and

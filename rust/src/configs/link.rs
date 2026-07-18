@@ -9,7 +9,7 @@ use dialoguer::theme::ColorfulTheme;
 
 use crate::common::platform::Platform;
 use crate::configs::manifest::{
-    filter_by_name, load_manifest, validate_source_filesystem_containment,
+    load_manifest, select_entries, validate_source_filesystem_containment,
 };
 use crate::configs::state::{
     SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
@@ -32,27 +32,7 @@ pub fn run_link(
 ) -> Result<()> {
     let home_path = home_dir()?;
 
-    let all_entries = load_manifest(project_root, platform)?;
-
-    let entries: Vec<ConfigEntry> = if let Some(name) = filter_name {
-        let filtered = filter_by_name(&all_entries, name);
-        if filtered.is_empty() {
-            let available: Vec<&str> = {
-                let mut names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
-                names.sort();
-                names.dedup();
-                names
-            };
-            bail!(
-                "No config named '{}'. Available: {}",
-                name,
-                available.join(", ")
-            );
-        }
-        filtered
-    } else {
-        all_entries
-    };
+    let entries = select_entries(load_manifest(project_root, platform)?, filter_name)?;
 
     let self_managed = load_self_managed(project_root)?;
 
@@ -299,8 +279,18 @@ fn resolve_replace_backup_with(
     }
 
     if let Err(e) = std::fs::rename(&entry.target, &bak_path) {
-        if had_previous_backup {
-            let _ = std::fs::rename(&previous_backup, &bak_path);
+        if had_previous_backup
+            && let Err(restore_error) = std::fs::rename(&previous_backup, &bak_path)
+        {
+            let recovery_dir = staging.keep();
+            return Err(anyhow::anyhow!(
+                "Failed to rename {} to {}: {}. Restoring the previous backup also failed: {}. Recovery data was kept at {}",
+                entry.target.display(),
+                bak_path.display(),
+                e,
+                restore_error,
+                recovery_dir.display()
+            ));
         }
         return Err(anyhow::anyhow!(
             "Failed to rename {} to {}: {}",
@@ -312,19 +302,33 @@ fn resolve_replace_backup_with(
 
     if let Err(link_error) = link(entry) {
         let target_restore = std::fs::rename(&bak_path, &entry.target);
-        let backup_restore = if had_previous_backup {
-            std::fs::rename(&previous_backup, &bak_path)
-        } else {
-            Ok(())
-        };
 
-        return match (target_restore, backup_restore) {
-            (Ok(()), Ok(())) => Err(link_error.context("link creation failed; original restored")),
-            (target_result, backup_result) => Err(anyhow::anyhow!(
-                "Link creation failed: {link_error:#}. Rollback was incomplete: target restore: {}; previous backup restore: {}",
-                format_rollback_result(target_result),
-                format_rollback_result(backup_result)
-            )),
+        return match target_restore {
+            Ok(()) => {
+                let backup_restore = if had_previous_backup {
+                    std::fs::rename(&previous_backup, &bak_path)
+                } else {
+                    Ok(())
+                };
+                match backup_restore {
+                    Ok(()) => Err(link_error.context("link creation failed; original restored")),
+                    Err(backup_error) => {
+                        let recovery_dir = staging.keep();
+                        Err(anyhow::anyhow!(
+                            "Link creation failed: {link_error:#}. The original target was restored, but the previous backup could not be restored: {backup_error}. Recovery data was kept at {}",
+                            recovery_dir.display()
+                        ))
+                    }
+                }
+            }
+            Err(target_error) => {
+                let recovery_dir = staging.keep();
+                Err(anyhow::anyhow!(
+                    "Link creation failed: {link_error:#}. The original target remains at {} because rollback failed: {target_error}. The previous backup was not moved. Recovery data was kept at {}",
+                    bak_path.display(),
+                    recovery_dir.display()
+                ))
+            }
         };
     }
 
@@ -368,11 +372,15 @@ fn resolve_discard_with(
     if let Err(link_error) = link(entry) {
         return match std::fs::rename(&staged_target, &entry.target) {
             Ok(()) => Err(link_error.context("link creation failed; original restored")),
-            Err(restore_error) => Err(anyhow::anyhow!(
-                "Link creation failed: {link_error:#}. Original remains at {} because rollback failed: {}",
-                staged_target.display(),
-                restore_error
-            )),
+            Err(restore_error) => {
+                let recovery_dir = staging.keep();
+                let recovery_target = recovery_dir.join("original-target");
+                Err(anyhow::anyhow!(
+                    "Link creation failed: {link_error:#}. Original remains at {} because rollback failed: {}",
+                    recovery_target.display(),
+                    restore_error
+                ))
+            }
         };
     }
 
@@ -403,13 +411,6 @@ fn create_staging_dir(target: &Path) -> Result<tempfile::TempDir> {
                 e
             )
         })
-}
-
-fn format_rollback_result(result: std::io::Result<()>) -> String {
-    match result {
-        Ok(()) => "ok".to_string(),
-        Err(e) => e.to_string(),
-    }
 }
 
 /// Mark the entry as self-managed; leave the local file in place.
@@ -797,6 +798,42 @@ mod tests {
     }
 
     #[test]
+    fn replace_keeps_previous_backup_when_rollback_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+        std::fs::write(&backup, "older backup").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_replace_backup_with(&mut output, &entry, &fake_home(), |entry| {
+            std::fs::create_dir(&entry.target)?;
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link and rollback failure should be returned");
+
+        assert!(error.to_string().contains("Recovery data was kept at"));
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "local content");
+        let recovery_dir = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|candidate| {
+                candidate
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bashc-link-")
+            })
+            .expect("recovery directory should persist");
+        assert_eq!(
+            std::fs::read_to_string(recovery_dir.path().join("previous-backup")).unwrap(),
+            "older backup"
+        );
+    }
+
+    #[test]
     fn discard_rolls_back_original_when_link_creation_fails() {
         let dir = tempdir().unwrap();
         let source = dir.path().join("source.txt");
@@ -814,6 +851,39 @@ mod tests {
         assert!(error.to_string().contains("original restored"));
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
         assert!(!target.is_symlink());
+    }
+
+    #[test]
+    fn discard_keeps_original_when_rollback_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_discard_with(&mut output, &entry, &fake_home(), |entry| {
+            std::fs::create_dir(&entry.target)?;
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link and rollback failure should be returned");
+
+        assert!(error.to_string().contains("Original remains at"));
+        let recovery_dir = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|candidate| {
+                candidate
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bashc-link-")
+            })
+            .expect("recovery directory should persist");
+        assert_eq!(
+            std::fs::read_to_string(recovery_dir.path().join("original-target")).unwrap(),
+            "local content"
+        );
     }
 
     // ── Test 6: Conflict entry is skipped with message (non-interactive) ─────
