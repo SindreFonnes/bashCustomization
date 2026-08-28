@@ -43,7 +43,7 @@
 # resize-overlay-duration = 4s 200ms
 
 # 1. Force Option to act as Meta (this is the big one)
-macos-option-as-alt = left
+macos-option-as-alt = right
 
 # 2. Unbind the specific conflict
 # This tells Ghostty "Don't handle this; send it to the shell/Zellij"
