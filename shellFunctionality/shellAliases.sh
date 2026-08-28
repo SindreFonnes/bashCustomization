@@ -62,3 +62,4 @@ fi
 
 alias cb="output_to_clipboad";
 alias clip="output_to_clipboad";
+alias ss="swap_zellij_session";

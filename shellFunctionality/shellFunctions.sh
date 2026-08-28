@@ -299,3 +299,87 @@ output_to_clipboad() {
         return 1
     fi
 }
+
+swap_zellij_session() {
+    local selected
+    local selected_name
+    local arg
+    local layout="compact"
+
+    zellij_session_exists() {
+        zellij list-sessions --no-formatting 2>/dev/null |
+            awk -v name="$1" '
+                $1 == name && $0 !~ /EXITED/ {
+                    found = 1
+                }
+                END {
+                    exit !found
+                }
+            '
+    }
+
+    if (( $# == 1 )); then
+        arg="$1"
+
+        # Existing session: just switch/attach to it.
+        if zellij_session_exists "$arg"; then
+            if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
+                zellij action switch-session "$arg"
+            else
+                zellij attach "$arg"
+            fi
+
+            return
+        fi
+
+        # Otherwise interpret the argument as a project.
+        if [[ -d "$arg" ]]; then
+            selected="$(cd "$arg" && pwd -P)"
+        elif [[ -d "$HOME/p/$arg" ]]; then
+            selected="$HOME/p/$arg"
+        elif [[ -d "$HOME/p/scaleaq/$arg" ]]; then
+            selected="$HOME/p/scaleaq/$arg"
+        else
+            echo "No session or project found: $arg" >&2
+            return 1
+        fi
+    else
+        selected=$(
+            fd . "$HOME/p" "$HOME/p/scaleaq" \
+                --min-depth 1 \
+                --max-depth 1 \
+                --type directory |
+            fzf \
+                --bind 'tab:down' \
+                --bind 'btab:up'
+        )
+    fi
+
+    [[ -z "$selected" ]] && return 0
+
+    selected="$(cd "$selected" && pwd -P)"
+    selected_name="$(basename "$selected" | tr . _)"
+
+    if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
+        if zellij_session_exists "$selected_name"; then
+            # Existing session: preserve its current state/layout.
+            zellij action switch-session "$selected_name"
+        else
+            # New session: project cwd + compact layout.
+            zellij action switch-session \
+                "$selected_name" \
+                --cwd "$selected" \
+                --layout "$layout"
+        fi
+    else
+        cd "$selected" || return 1
+
+        if zellij_session_exists "$selected_name"; then
+            zellij attach "$selected_name"
+        else
+            # New session: compact layout.
+            zellij attach --create "$selected_name" \
+                options --default-layout "$layout"
+        fi
+    fi
+}
