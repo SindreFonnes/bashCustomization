@@ -300,6 +300,120 @@ output_to_clipboad() {
     fi
 }
 
+# -----------------------------------------------------------------------------
+# Zellij session/project switcher
+#
+# Dependencies:
+#   zellij
+#   fd
+#   fzf
+#
+# Works in both Bash and zsh.
+# -----------------------------------------------------------------------------
+
+_zellij_projects() {
+    fd . "$HOME/p" "$HOME/p/scaleaq" \
+        --min-depth 1 \
+        --max-depth 1 \
+        --type directory \
+        2>/dev/null
+}
+
+
+_zellij_sessions() {
+    zellij list-sessions --no-formatting 2>/dev/null |
+        awk '
+            NF && $0 !~ /EXITED/ {
+                print $1
+            }
+        '
+}
+
+
+_zellij_session_exists() {
+    _zellij_sessions | grep -Fxq -- "$1"
+}
+
+
+_zellij_inside() {
+    [ -n "${ZELLIJ:-}" ] || [ -n "${ZELLIJ_SESSION_NAME:-}" ]
+}
+
+
+_zellij_switch_to_session() {
+    local session_name="$1"
+
+    # Already in the requested session.
+    if [ "${ZELLIJ_SESSION_NAME:-}" = "$session_name" ]; then
+        return 0
+    fi
+
+    if _zellij_inside; then
+        zellij action switch-session "$session_name"
+    else
+        zellij attach "$session_name"
+    fi
+}
+
+
+_zellij_resolve_project() {
+    local arg="$1"
+
+    # Explicit/relative/absolute path.
+    if [ -d "$arg" ]; then
+        (
+            cd "$arg" 2>/dev/null || exit 1
+            pwd -P
+        )
+        return
+    fi
+
+    # Project directly below ~/p.
+    if [ -d "$HOME/p/$arg" ]; then
+        (
+            cd "$HOME/p/$arg" 2>/dev/null || exit 1
+            pwd -P
+        )
+        return
+    fi
+
+    # Project below ~/p/scaleaq.
+    if [ -d "$HOME/p/scaleaq/$arg" ]; then
+        (
+            cd "$HOME/p/scaleaq/$arg" 2>/dev/null || exit 1
+            pwd -P
+        )
+        return
+    fi
+
+    return 1
+}
+
+
+_zellij_fzf_target() {
+    {
+        # Existing sessions
+        _zellij_sessions |
+            while IFS= read -r session; do
+                [ -n "$session" ] &&
+                    printf 'session\t%s\n' "$session"
+            done
+
+        # Projects
+        _zellij_projects |
+            while IFS= read -r project; do
+                [ -n "$project" ] &&
+                    printf 'project\t%s\n' "${project%/}"
+            done
+    } |
+        fzf \
+            --delimiter=$'\t' \
+            --with-nth=1,2 \
+            --bind 'tab:down' \
+            --bind 'btab:up'
+}
+
+
 swap_zellij_session() {
     local selected
     local selected_type
@@ -308,110 +422,180 @@ swap_zellij_session() {
     local arg
     local layout="compact"
 
-    zellij_session_exists() {
-        zellij list-sessions --no-formatting 2>/dev/null |
-            awk -v name="$1" '
-                $1 == name && $0 !~ /EXITED/ {
-                    found = 1
-                }
-                END {
-                    exit !found
-                }
-            '
-    }
+    case "$#" in
+        0)
+            selected="$(_zellij_fzf_target)"
 
-    switch_to_session() {
-        local session_name="$1"
+            [ -z "$selected" ] && return 0
 
-        if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
-            zellij action switch-session "$session_name"
-        else
-            zellij attach "$session_name"
-        fi
-    }
+            selected_type="${selected%%$'\t'*}"
+            selected_value="${selected#*$'\t'}"
 
-    if (( $# == 1 )); then
-        arg="$1"
+            if [ "$selected_type" = "session" ]; then
+                _zellij_switch_to_session "$selected_value"
+                return
+            fi
 
-        # Existing session takes precedence.
-        if zellij_session_exists "$arg"; then
-            switch_to_session "$arg"
-            return
-        fi
+            selected="$selected_value"
+            ;;
 
-        # Otherwise interpret the argument as a project.
-        if [[ -d "$arg" ]]; then
-            selected="$(cd "$arg" && pwd -P)"
-        elif [[ -d "$HOME/p/$arg" ]]; then
-            selected="$HOME/p/$arg"
-        elif [[ -d "$HOME/p/scaleaq/$arg" ]]; then
-            selected="$HOME/p/scaleaq/$arg"
-        else
-            echo "No session or project found: $arg" >&2
-            return 1
-        fi
+        1)
+            arg="$1"
 
-    else
-        # Combine active sessions and projects into one fzf list.
-        selected=$(
-            {
-                zellij list-sessions --no-formatting 2>/dev/null |
-                    awk '
-                        $0 !~ /EXITED/ {
-                            print "session\t" $1
-                        }
-                    '
+            # Existing session names take precedence over project names.
+            if _zellij_session_exists "$arg"; then
+                _zellij_switch_to_session "$arg"
+                return
+            fi
 
-                fd . "$HOME/p" "$HOME/p/scaleaq" \
-                    --min-depth 1 \
-                    --max-depth 1 \
-                    --type directory |
-                    awk '{
-                        print "project\t" $0
-                    }'
-            } |
-            fzf \
-                --delimiter=$'\t' \
-                --with-nth=1,2 \
-                --bind 'tab:down' \
-                --bind 'btab:up'
-        )
+            selected="$(_zellij_resolve_project "$arg")"
 
-        [[ -z "$selected" ]] && return 0
+            if [ -z "$selected" ]; then
+                printf 'No session or project found: %s\n' "$arg" >&2
+                return 1
+            fi
+            ;;
 
-        selected_type="${selected%%$'\t'*}"
-        selected_value="${selected#*$'\t'}"
+        *)
+            printf 'Usage: swap_zellij_session [session|project|path]\n' >&2
+            return 2
+            ;;
+    esac
 
-        if [[ "$selected_type" == "session" ]]; then
-            switch_to_session "$selected_value"
-            return
-        fi
+    # Canonicalize project path.
+    selected="$(
+        cd "$selected" 2>/dev/null &&
+            pwd -P
+    )"
 
-        selected="$selected_value"
+    if [ -z "$selected" ]; then
+        printf 'Invalid project directory\n' >&2
+        return 1
     fi
 
-    [[ -z "$selected" ]] && return 0
+    selected_name="$(
+        basename "$selected" |
+            tr '.' '_'
+    )"
 
-    selected="$(cd "$selected" && pwd -P)"
-    selected_name="$(basename "$selected" | tr . _)"
-
-    # If a session corresponding to the project already exists,
-    # switch to it without changing its cwd/layout.
-    if zellij_session_exists "$selected_name"; then
-        switch_to_session "$selected_name"
+    # A session for this project already exists.
+    # Switch to it without modifying its cwd/layout.
+    if _zellij_session_exists "$selected_name"; then
+        _zellij_switch_to_session "$selected_name"
         return
     fi
 
-    # Otherwise create a new session for the project.
-    if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
+    # No existing session: create one for the project.
+    if _zellij_inside; then
         zellij action switch-session \
             "$selected_name" \
             --cwd "$selected" \
             --layout "$layout"
     else
-        cd "$selected" || return 1
+        # Use a subshell so we don't change the caller's cwd.
+        (
+            cd "$selected" || exit 1
 
-        zellij attach --create "$selected_name" \
-            options --default-layout "$layout"
+            zellij attach --create "$selected_name" \
+                options --default-layout "$layout"
+        )
     fi
 }
+
+
+# -----------------------------------------------------------------------------
+# Completion candidates shared between Bash and zsh
+# -----------------------------------------------------------------------------
+
+_zellij_completion_candidates() {
+    {
+        _zellij_sessions
+
+        _zellij_projects |
+            while IFS= read -r project; do
+                project="${project%/}"
+                basename "$project"
+            done
+    } |
+        awk '
+            NF && !seen[$0]++ {
+                print
+            }
+        '
+}
+
+
+# -----------------------------------------------------------------------------
+# Bash completion
+# -----------------------------------------------------------------------------
+
+_swap_zellij_session_bash_completion() {
+    local cur
+    local candidate
+    local directory
+    local cur_lower
+    local candidate_lower
+
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    cur_lower="${cur,,}"
+
+    COMPREPLY=()
+
+    # Sessions + known project names, case-insensitive.
+    while IFS= read -r candidate; do
+        candidate_lower="${candidate,,}"
+
+        case "$candidate_lower" in
+            "$cur_lower"*)
+                COMPREPLY+=("$candidate")
+                ;;
+        esac
+    done < <(_zellij_completion_candidates)
+
+    # Normal directory/path completion.
+    while IFS= read -r directory; do
+        COMPREPLY+=("$directory")
+    done < <(compgen -d -- "$cur")
+
+    compopt -o filenames 2>/dev/null || true
+}
+
+# -----------------------------------------------------------------------------
+# zsh completion
+# -----------------------------------------------------------------------------
+
+_swap_zellij_session_zsh_completion() {
+    local candidate
+    local -a candidates
+
+    candidates=()
+
+    while IFS= read -r candidate; do
+        candidates+=("$candidate")
+    done < <(_zellij_completion_candidates)
+
+    # Sessions/projects, case-insensitive.
+    compadd -M 'm:{a-zA-Z}={A-Za-z}' -- "${candidates[@]}"
+
+    # Also retain normal directory/path completion.
+    _directories
+}
+
+
+# -----------------------------------------------------------------------------
+# Register completion for whichever shell sourced this file
+# -----------------------------------------------------------------------------
+
+if [ -n "${BASH_VERSION:-}" ]; then
+    complete -F _swap_zellij_session_bash_completion swap_zellij_session
+
+elif [ -n "${ZSH_VERSION:-}" ]; then
+    # compdef is provided by zsh's completion system.
+    # Initialize it only if the user's .zshrc hasn't already done so.
+    if ! command -v compdef >/dev/null 2>&1; then
+        autoload -Uz compinit
+        compinit
+    fi
+
+    compdef _swap_zellij_session_zsh_completion swap_zellij_session
+fi
