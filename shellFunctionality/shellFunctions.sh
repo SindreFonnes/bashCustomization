@@ -302,6 +302,8 @@ output_to_clipboad() {
 
 swap_zellij_session() {
     local selected
+    local selected_type
+    local selected_value
     local selected_name
     local arg
     local layout="compact"
@@ -318,17 +320,22 @@ swap_zellij_session() {
             '
     }
 
+    switch_to_session() {
+        local session_name="$1"
+
+        if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
+            zellij action switch-session "$session_name"
+        else
+            zellij attach "$session_name"
+        fi
+    }
+
     if (( $# == 1 )); then
         arg="$1"
 
-        # Existing session: just switch/attach to it.
+        # Existing session takes precedence.
         if zellij_session_exists "$arg"; then
-            if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
-                zellij action switch-session "$arg"
-            else
-                zellij attach "$arg"
-            fi
-
+            switch_to_session "$arg"
             return
         fi
 
@@ -343,16 +350,44 @@ swap_zellij_session() {
             echo "No session or project found: $arg" >&2
             return 1
         fi
+
     else
+        # Combine active sessions and projects into one fzf list.
         selected=$(
-            fd . "$HOME/p" "$HOME/p/scaleaq" \
-                --min-depth 1 \
-                --max-depth 1 \
-                --type directory |
+            {
+                zellij list-sessions --no-formatting 2>/dev/null |
+                    awk '
+                        $0 !~ /EXITED/ {
+                            print "session\t" $1
+                        }
+                    '
+
+                fd . "$HOME/p" "$HOME/p/scaleaq" \
+                    --min-depth 1 \
+                    --max-depth 1 \
+                    --type directory |
+                    awk '{
+                        print "project\t" $0
+                    }'
+            } |
             fzf \
+                --delimiter=$'\t' \
+                --with-nth=1,2 \
                 --bind 'tab:down' \
                 --bind 'btab:up'
         )
+
+        [[ -z "$selected" ]] && return 0
+
+        selected_type="${selected%%$'\t'*}"
+        selected_value="${selected#*$'\t'}"
+
+        if [[ "$selected_type" == "session" ]]; then
+            switch_to_session "$selected_value"
+            return
+        fi
+
+        selected="$selected_value"
     fi
 
     [[ -z "$selected" ]] && return 0
@@ -360,26 +395,23 @@ swap_zellij_session() {
     selected="$(cd "$selected" && pwd -P)"
     selected_name="$(basename "$selected" | tr . _)"
 
+    # If a session corresponding to the project already exists,
+    # switch to it without changing its cwd/layout.
+    if zellij_session_exists "$selected_name"; then
+        switch_to_session "$selected_name"
+        return
+    fi
+
+    # Otherwise create a new session for the project.
     if [[ -n "$ZELLIJ_SESSION_NAME" ]]; then
-        if zellij_session_exists "$selected_name"; then
-            # Existing session: preserve its current state/layout.
-            zellij action switch-session "$selected_name"
-        else
-            # New session: project cwd + compact layout.
-            zellij action switch-session \
-                "$selected_name" \
-                --cwd "$selected" \
-                --layout "$layout"
-        fi
+        zellij action switch-session \
+            "$selected_name" \
+            --cwd "$selected" \
+            --layout "$layout"
     else
         cd "$selected" || return 1
 
-        if zellij_session_exists "$selected_name"; then
-            zellij attach "$selected_name"
-        else
-            # New session: compact layout.
-            zellij attach --create "$selected_name" \
-                options --default-layout "$layout"
-        fi
+        zellij attach --create "$selected_name" \
+            options --default-layout "$layout"
     fi
 }
