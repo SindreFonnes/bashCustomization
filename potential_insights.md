@@ -73,3 +73,11 @@ than checking its complete primary-key set: a compromised download could append
 an attacker-controlled primary key alongside the legitimate one. Apt keyring
 bootstrap should compare the exact set of primary fingerprints while allowing
 the publisher's normal subkeys.
+
+## CI validator versions must be visible and reproducible
+
+The Ubuntu runner's apt package currently provides ShellCheck 0.9, while a
+developer machine using Homebrew may run a newer release. A script can therefore
+pass locally but fail the warning-level CI gate. Validation logs should print
+tool versions and divide the suite into named stages; suspected CI-only lint
+failures should be reproduced with the runner's packaged version.

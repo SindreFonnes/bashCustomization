@@ -29,12 +29,16 @@ static CONTAINER: OnceCell<TestContainer> = OnceCell::const_new();
 #[cfg(feature = "full-install-tests")]
 static APT_INSTALL_LOCK: Mutex<()> = Mutex::const_new(());
 
-/// Shared apt-get update guard — the container init already warms the apt
-/// cache, so this is a no-op after init. Kept for API symmetry with the
-/// Debian setup so fast_installs.rs can call `setup::ensure_apt_updated()`
-/// without branching on distro.
+/// Shared apt-get update guard — runs exactly once when the opt-in real-install
+/// tests need the apt cache. The default dry-run tier stays network-independent
+/// after the image has been built.
 #[cfg(feature = "full-install-tests")]
 static APT_UPDATED: OnceCell<()> = OnceCell::const_new();
+
+/// Shared ripgrep installation guard for tests that verify the real installer
+/// and the installed binary concurrently.
+#[cfg(feature = "full-install-tests")]
+static RIPGREP_INSTALLED: OnceCell<()> = OnceCell::const_new();
 
 /// Acquire the global apt install lock and return the guard.
 ///
@@ -46,16 +50,45 @@ pub async fn apt_install_lock() -> tokio::sync::MutexGuard<'static, ()> {
     APT_INSTALL_LOCK.lock().await
 }
 
-/// Ensure the apt cache has been warmed. The Ubuntu container init already
-/// runs `apt-get update`, so this function just ensures the container is
-/// started (which triggers the init) and marks the update as complete.
+/// Run `apt-get update -qq` exactly once across the entire test binary.
 #[cfg(feature = "full-install-tests")]
 pub async fn ensure_apt_updated() {
     APT_UPDATED
         .get_or_init(|| async {
-            // Calling get_container() ensures init_container() has run, which
-            // already executed apt-get update as part of container setup.
-            get_container().await;
+            let _lock = apt_install_lock().await;
+            let container = get_container().await;
+            let result = container
+                .exec(&["apt-get", "update", "-qq"])
+                .await
+                .expect("apt-get update exec failed");
+            if result.exit_code != 0 {
+                panic!(
+                    "apt-get update failed with exit code {}\n--- stderr ---\n{}",
+                    result.exit_code, result.stderr
+                );
+            }
+        })
+        .await;
+}
+
+/// Install ripgrep exactly once for the opt-in real-install tests.
+#[cfg(feature = "full-install-tests")]
+pub async fn ensure_ripgrep_installed() {
+    RIPGREP_INSTALLED
+        .get_or_init(|| async {
+            ensure_apt_updated().await;
+            let _lock = apt_install_lock().await;
+            let container = get_container().await;
+            let result = container
+                .exec(&["bashc", "install", "ripgrep"])
+                .await
+                .expect("ripgrep install exec failed");
+            if result.exit_code != 0 {
+                panic!(
+                    "ripgrep install failed with exit code {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+                    result.exit_code, result.stdout, result.stderr
+                );
+            }
         })
         .await;
 }
@@ -116,39 +149,6 @@ async fn init_container() -> Result<TestContainer> {
         .await
         .context("creating and starting Ubuntu container")?;
     println!("==> Container running.");
-
-    // Step 5: Warm the apt cache once so that concurrent tests can install
-    // packages without racing on the apt lock.
-    println!("==> Running apt-get update to warm package cache...");
-    let update = container
-        .exec(&["apt-get", "update", "-qq"])
-        .await
-        .context("warming apt cache")?;
-    if update.exit_code != 0 {
-        anyhow::bail!(
-            "apt-get update failed (exit {}): {}",
-            update.exit_code,
-            update.stderr
-        );
-    }
-    println!("==> Package cache ready.");
-
-    // Step 6: Pre-install ripgrep so concurrent tests that verify rg --version
-    // do not race with each other on the apt install lock.
-    println!("==> Pre-installing ripgrep...");
-    let install = container
-        .exec(&["bashc", "install", "ripgrep"])
-        .await
-        .context("pre-installing ripgrep")?;
-    if install.exit_code != 0 {
-        anyhow::bail!(
-            "pre-install ripgrep failed (exit {}): stdout={} stderr={}",
-            install.exit_code,
-            install.stdout,
-            install.stderr
-        );
-    }
-    println!("==> ripgrep pre-installed.");
 
     Ok(container)
 }

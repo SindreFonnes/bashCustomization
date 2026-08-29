@@ -112,7 +112,7 @@ is_wsl_os () {
         return 1;
     fi
     
-    if [[ $(cat /proc/version | tr '[:upper:]' '[:lower:]') == *"wsl"* ]]; then
+    if [[ $(tr '[:upper:]' '[:lower:]' < /proc/version) == *"wsl"* ]]; then
         return 0;
     fi
 
