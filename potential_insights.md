@@ -81,3 +81,11 @@ developer machine using Homebrew may run a newer release. A script can therefore
 pass locally but fail the warning-level CI gate. Validation logs should print
 tool versions and divide the suite into named stages; suspected CI-only lint
 failures should be reproduced with the runner's packaged version.
+
+## Zsh completion initialization is interactive-only
+
+`compinit` may prompt when it finds insecure completion directories. On a CI
+runner or another noninteractive shell there is no terminal for that prompt, so
+initialization aborts and leaves `compdef` unavailable. Modules sourced from
+`main.sh` must skip completion initialization and registration unless Zsh is
+interactive; tests should explicitly verify this with stdin detached.

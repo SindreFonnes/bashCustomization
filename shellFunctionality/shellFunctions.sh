@@ -579,12 +579,19 @@ if [ -n "${BASH_VERSION:-}" ]; then
     complete -F _swap_zellij_session_bash_completion swap_zellij_session
 
 elif [ -n "${ZSH_VERSION:-}" ]; then
-    # compdef is provided by zsh's completion system.
-    # Initialize it only if the user's .zshrc hasn't already done so.
-    if ! command -v compdef >/dev/null 2>&1; then
-        autoload -Uz compinit
-        compinit
-    fi
+    # Completion registration is meaningful only in an interactive shell.
+    # Running compinit while scripts source main.sh non-interactively can try
+    # to prompt about insecure completion directories and abort without a TTY.
+    if [[ -o interactive ]]; then
+        # compdef is provided by zsh's completion system. Initialize it only
+        # if the user's .zshrc hasn't already done so.
+        if ! command -v compdef >/dev/null 2>&1; then
+            autoload -Uz compinit
+            compinit -i
+        fi
 
-    compdef _swap_zellij_session_zsh_completion swap_zellij_session
+        if command -v compdef >/dev/null 2>&1; then
+            compdef _swap_zellij_session_zsh_completion swap_zellij_session
+        fi
+    fi
 fi

@@ -127,6 +127,29 @@ for shell_name in bash zsh; do
         '
 done
 
+# Noninteractive Zsh must not initialize or register interactive completions.
+# On CI, compinit may otherwise attempt to prompt about insecure directories
+# and abort because the runner does not provide a terminal.
+completion_marker="$test_root/noninteractive-completion"
+zsh_path=$(command -v zsh)
+# The single-quoted program is intentionally expanded by the child Zsh.
+# shellcheck disable=SC2016
+env \
+    HOME="$test_home" \
+    PATH="/usr/bin:/bin" \
+    BASHC_ROOT="$project_root" \
+    BASHC_SKIP_UPDATE_CHECK=1 \
+    BASHC_SKIP_CONFIG_CHECK=1 \
+    BASHC_COMPLETION_MARKER="$completion_marker" \
+    "$zsh_path" -f -c '
+        compdef() {
+            : > "$BASHC_COMPLETION_MARKER"
+            return 1
+        }
+        . "$BASHC_ROOT/main.sh" || exit 1
+        test ! -e "$BASHC_COMPLETION_MARKER"
+    ' </dev/null
+
 # Local customization writers generate code that is sourced on every shell
 # startup. Preserve values literally and reject invalid identifiers so a quote
 # or command substitution in user data cannot corrupt that startup chain.
