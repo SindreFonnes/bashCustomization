@@ -12,10 +12,11 @@ use super::privilege;
 
 static BREW_FAILED: AtomicBool = AtomicBool::new(false);
 
-const HOMEBREW_INSTALL_URL: &str =
-    "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
+// Pin the installer to an immutable reviewed commit. A mutable HEAD URL makes
+// the checksum stale whenever Homebrew updates the script.
+const HOMEBREW_INSTALL_URL: &str = "https://raw.githubusercontent.com/Homebrew/install/150c69df1e54b0b74c9fcca5a201410a2300816a/install.sh";
 const HOMEBREW_INSTALL_SHA256: &str =
-    "99287f194a8b3c9e6b0203a11a5fa54518be57209343e6bb954dec4635796d9d";
+    "12479a24be3f5307eecac7cde670fad7118640f031229e964f544b1367b52a41";
 
 /// Mark brew as failed for the remainder of this run.
 pub fn set_brew_failed() {
@@ -45,6 +46,26 @@ pub fn is_brew_applicable(platform: &Platform) -> bool {
     )
 }
 
+/// Whether planning output should select the Brew route for this run.
+pub fn prefers_brew(platform: &Platform) -> bool {
+    is_brew_applicable(platform) && !is_brew_failed()
+}
+
+/// Whether installing Homebrew itself needs distro-native bootstrap packages.
+/// An existing installation at a standard prefix is activated without sudo.
+pub fn brew_bootstrap_needs_sudo(platform: &Platform) -> bool {
+    platform.is_linux()
+        && !has_brew()
+        && known_brew_executable(platform).is_none()
+        && !linuxbrew_prerequisites_present()
+}
+
+fn linuxbrew_prerequisites_present() -> bool {
+    ["bash", "cc", "curl", "file", "git", "make", "ps"]
+        .iter()
+        .all(|program| command::exists(program))
+}
+
 /// Ensure Homebrew is installed. On macOS: /opt/homebrew or /usr/local.
 /// On Debian/Fedora Linux: Linuxbrew at /home/linuxbrew/.linuxbrew.
 /// Skips (no-op) on distros where brew is not applicable (Arch, Alpine, NixOS).
@@ -69,8 +90,14 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     }
 
     println!("Installing Homebrew...");
-    command::require_all(&["bash", "curl"])
-        .context("Homebrew bootstrap prerequisites are not satisfied")?;
+    if let Err(error) = install_linuxbrew_prerequisites(platform) {
+        set_brew_failed();
+        return Err(error).context("Homebrew native prerequisites could not be installed");
+    }
+    if let Err(error) = command::require_all(&["bash", "curl"]) {
+        set_brew_failed();
+        return Err(error).context("Homebrew bootstrap prerequisites are not satisfied");
+    }
 
     let result = download::run_verified_script(
         HOMEBREW_INSTALL_URL,
@@ -81,9 +108,7 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     );
 
     if result.is_err() {
-        eprintln!(
-            "Homebrew installation failed — falling back to native package manager for remaining tools."
-        );
+        eprintln!("Homebrew installation failed.");
         set_brew_failed();
         return result;
     }
@@ -101,6 +126,55 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Install the packages required by Homebrew's Linux installer. This keeps a
+/// direct `bashc install brew` equivalent to the Brew step in `install all`.
+fn install_linuxbrew_prerequisites(platform: &Platform) -> Result<()> {
+    if !brew_bootstrap_needs_sudo(platform) {
+        return Ok(());
+    }
+
+    match platform.distro() {
+        Some(Distro::Debian | Distro::Ubuntu) => {
+            println!("Installing Linuxbrew prerequisites via apt...");
+            privilege::run_privileged("apt-get", &["update"])?;
+            privilege::run_privileged(
+                "apt-get",
+                &[
+                    "install",
+                    "-y",
+                    "build-essential",
+                    "ca-certificates",
+                    "curl",
+                    "file",
+                    "git",
+                    "procps",
+                ],
+            )
+            .context("installing Linuxbrew prerequisites via apt")
+        }
+        Some(Distro::Fedora) => {
+            println!("Installing Linuxbrew prerequisites via dnf...");
+            privilege::run_privileged(
+                "dnf",
+                &[
+                    "install",
+                    "-y",
+                    "gcc",
+                    "gcc-c++",
+                    "make",
+                    "ca-certificates",
+                    "curl",
+                    "file",
+                    "git",
+                    "procps-ng",
+                ],
+            )
+            .context("installing Linuxbrew prerequisites via dnf")
+        }
+        _ => Ok(()),
+    }
 }
 
 fn known_brew_executable(platform: &Platform) -> Option<PathBuf> {
@@ -169,6 +243,11 @@ pub fn brew_install(package: &str) -> Result<()> {
 /// Install a brew cask (macOS only).
 pub fn brew_install_cask(package: &str) -> Result<()> {
     command::run_visible("brew", &["install", "--cask", package])
+}
+
+/// Add an official or third-party Homebrew tap when a formula is not in core.
+pub fn brew_tap(tap: &str) -> Result<()> {
+    command::run_visible("brew", &["tap", tap])
 }
 
 /// Install a package using the preferred method for the platform.
@@ -500,6 +579,12 @@ mod tests {
     #[test]
     fn brew_applicable_on_macos() {
         assert!(is_brew_applicable(&mac()));
+    }
+
+    #[test]
+    fn homebrew_installer_uses_an_immutable_commit_url() {
+        assert!(!HOMEBREW_INSTALL_URL.contains("/HEAD/"));
+        assert!(HOMEBREW_INSTALL_URL.contains("150c69df1e54b0b74c9fcca5a201410a2300816a"));
     }
 
     #[test]

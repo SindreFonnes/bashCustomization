@@ -7,9 +7,9 @@ const NVM_INSTALL_VERSION: &str = "v0.40.1";
 const NVM_INSTALL_SHA256: &str = "abdb525ee9f5b48b34d8ed9fc67c6013fb0f659712e401ecd88ab989b3af8f53";
 const PNPM_INSTALL_URL: &str = "https://get.pnpm.io/install.sh";
 const PNPM_INSTALL_SHA256: &str =
-    "ab8b2166653269b1182ae8ae03801b6c651fae56a0ca9e011d5d5d5aac0f056b";
+    "3a6b531bfa164f5cac7c8db261cb2eb7bf929d7b8efb3a4eae82425507050e91";
 const BUN_INSTALL_URL: &str = "https://bun.sh/install";
-const BUN_INSTALL_SHA256: &str = "bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd";
+const BUN_INSTALL_SHA256: &str = "04882bf41679d49d9af108657a1e5515bf04fdf2940d12c0d0b1e5d79dc53be8";
 
 #[derive(Debug, Clone, Copy)]
 pub struct JavaScriptInstaller;
@@ -25,8 +25,8 @@ impl crate::install::Installer for JavaScriptInstaller {
         false
     }
 
-    fn requires_brew(&self, _platform: &Platform) -> bool {
-        false
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
     }
 
     fn is_installed(&self) -> bool {
@@ -39,12 +39,23 @@ impl crate::install::Installer for JavaScriptInstaller {
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
-            println!("  Would install nvm, then pnpm, bun, and yarn");
+            if package_manager::is_brew_applicable(&config.platform) {
+                println!("  Would install nvm and Node.js, then pnpm, bun, and yarn via brew");
+            } else {
+                println!("  Would install nvm, then pnpm, bun, and yarn");
+            }
             return Ok(());
         }
 
         command::require_all(&["bash", "curl"])?;
         install_nvm()?;
+
+        if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            install_javascript_tools_with_brew()?;
+            println!("JavaScript toolchain installed (nvm, pnpm, bun, yarn)");
+            return Ok(());
+        }
+
         install_pnpm()?;
         install_bun()?;
         install_yarn()?;
@@ -56,6 +67,18 @@ impl crate::install::Installer for JavaScriptInstaller {
     fn phase(&self) -> u8 {
         2 // JS tools must run after other tools, nvm first
     }
+}
+
+fn install_javascript_tools_with_brew() -> Result<()> {
+    for formula in ["pnpm", "bun", "yarn"] {
+        if command::exists(formula) {
+            println!("{formula} already installed, skipping...");
+        } else {
+            println!("Installing {formula} via brew...");
+            package_manager::brew_install(formula)?;
+        }
+    }
+    Ok(())
 }
 
 fn install_nvm() -> Result<()> {

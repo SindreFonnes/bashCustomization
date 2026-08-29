@@ -80,8 +80,13 @@ fn install_base_mac() -> Result<()> {
 }
 
 fn install_base_linux(platform: &Platform) -> Result<()> {
+    // add-apt-repository is provided by software-properties-common. Install it
+    // before enabling Ubuntu's universe repository; the full package set below
+    // then establishes all Linuxbrew build prerequisites before the Brew phase.
     // The universe repo is Ubuntu-specific; Debian has equivalent packages in main
     if platform.is_ubuntu() {
+        privilege::run_privileged("apt-get", &["update"])?;
+        privilege::run_privileged("apt-get", &["install", "-y", "software-properties-common"])?;
         println!("Adding universe repository...");
         privilege::run_privileged("add-apt-repository", &["universe", "-y"])
             .context("enabling required Ubuntu universe repository")?;
@@ -89,12 +94,16 @@ fn install_base_linux(platform: &Platform) -> Result<()> {
 
     let packages = [
         "build-essential",
+        "ca-certificates",
+        "curl",
+        "file",
         "git",
         "safe-rm",
         "keychain",
         "nala",
         "gnupg",
         "pkg-config",
+        "procps",
         "libssl-dev",
         "zip",
         "unzip",
@@ -106,7 +115,6 @@ fn install_base_linux(platform: &Platform) -> Result<()> {
     ];
 
     println!("Installing base packages via apt...");
-
     privilege::run_privileged("apt-get", &["update"])?;
 
     let mut args = vec!["install", "-y"];

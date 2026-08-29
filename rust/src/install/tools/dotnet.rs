@@ -32,7 +32,7 @@ impl crate::install::Installer for DotnetInstaller {
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_fedora()
+        package_manager::is_brew_applicable(platform)
     }
 
     fn installation_state(&self, _platform: &Platform) -> InstallationState {
@@ -51,7 +51,7 @@ impl crate::install::Installer for DotnetInstaller {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install dotnet via brew");
             } else {
                 println!("  Would install dotnet-sdk-8.0 via apt (Microsoft repo)");

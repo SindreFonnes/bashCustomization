@@ -29,14 +29,14 @@ impl crate::install::Installer for AzureInstaller {
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_fedora()
+        package_manager::is_brew_applicable(platform)
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install azure-cli via brew");
             } else {
                 println!("  Would install azure-cli via apt (Microsoft GPG key + repo)");

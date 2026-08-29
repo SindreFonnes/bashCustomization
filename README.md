@@ -12,9 +12,16 @@ the [2026-07-13 implementation review](docs/reviews/2026-07-13-bashc-rust-port-r
 before relying on it for unattended fresh-machine setup.
 
 The supported installer entry point is `bashc install`. The shell files under
-`installScripts/` remain as readable migration/reference material, but are not
-used as a fallback when the binary is missing because their older download and
-platform assumptions do not meet the current installer safeguards.
+`installScripts/` are compatibility launchers into that command, so direct
+script invocations use the same platform detection and verification policy.
+They require the Rust binary and do not provide a second fallback installer.
+
+Homebrew is the standard package source on macOS, Debian/Ubuntu, and Fedora
+and is required for tools routed through available formulas. Native bootstrap
+prerequisites are installed first so a clean Linux host can install Linuxbrew.
+Docker Engine, Linux Obsidian packages, fonts, privilege tools, and base system
+packages keep their platform-specific installation paths because a Brew formula
+would not provide the same system integration or artifact.
 
 ## Load an existing checkout
 

@@ -1,180 +1,42 @@
-#!/bin/bash
+#!/bin/sh
 
-check_install_arg () {
-	if [[ $2 == "unfilled_value" ]]; then
-		run_install_script "$1";
-    else
-        run_install_script_with_args "$1" "$2";
-    fi
-}
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
-run_install_script () {
-	local script_path=$1
-	shift
-	chmod +x "$script_path" &&
-	"$script_path" "$@";
-}
+selection=${1:---interactive}
+if [ "$#" -gt 0 ]; then
+    shift
+fi
 
-run_install_script_with_args () {
-	run_install_script "$@";
-}
+case "$selection" in
+    1) tool=go ;;
+    2) tool=dotnet ;;
+    3) tool=rust ;;
+    4|js|node) tool=javascript ;;
+    5) tool=java ;;
+    6) tool=azure ;;
+    7) tool=github ;;
+    8) tool=terraform ;;
+    9) tool=brew ;;
+    10) tool=docker ;;
+    11|nvim) tool=neovim ;;
+    12) tool=postgres ;;
+    13|k8s|kubernetes) tool=kubectl ;;
+    14) tool=obsidian ;;
+    15|rg) tool=ripgrep ;;
+    16) tool=bat ;;
+    17) tool=fd ;;
+    18) tool=eza ;;
+    19) tool=shellcheck ;;
+    20) tool=all ;;
+    *) tool=$selection ;;
+esac
 
-determine_install_script_to_use () {
-		local AZURE_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/azure/installAzureCli.sh;
-		local BREW_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/brew/installBrew.sh;
-		local DOCKER_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/docker/installDocker.sh;
-        local DOTNET_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/dotnet/installDotnet.sh;
-		local GITHUB_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/github/installGithubCli.sh;
-        local GO_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/go/installGo.sh;
-        local JAVA_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/java/installJava.sh;
-        local JAVASCRIPT_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/javascript/jsMain.sh;
-        local RUST_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/rust/installRust.sh;
-		local TERRAFORM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/terraform/installTerraform.sh;
-        local NEOVIM_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/neovim/installNeovim.sh;
-        local POSTGRES_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/postgres/installPostgres.sh;
-		local KUBECTL_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/kubectl/installKubectl.sh;
-        local OBSIDIAN_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/obsidian/installObsidian.sh;
-        local RIPGREP_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/ripgrep/installRipgrep.sh;
-        local BAT_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/bat/installBat.sh;
-        local FD_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/fd/installFd.sh;
-        local EZA_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/eza/installEza.sh;
-        local SHELLCHECK_INSTALL_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/shellcheck/installShellcheck.sh;
+# The old JavaScript submenu accepted a component name. `bashc` reconciles the
+# complete JavaScript toolchain, so consume that legacy selector when present.
+if [ "$tool" = javascript ]; then
+    case ${1:-} in
+        nvm|pnpm|yarn|bun|all) shift ;;
+    esac
+fi
 
-		local input=("$@");
-
-        # Argument 1 and 2 is reserved for passing the selection arguments
-
-        case "${input[0]}" in
-            "${input[2]}" | "1")
-                run_install_script "$GO_INSTALL_LOCATION"
-                ;;
-            "${input[3]}" | "2")
-                run_install_script "$DOTNET_INSTALL_LOCATION"
-                ;;
-            "${input[4]}" | "3")
-                run_install_script "$RUST_INSTALL_LOCATION"
-                ;;
-            "${input[5]}" | "4" | "js" | "javascript")
-                check_install_arg "$JAVASCRIPT_INSTALL_LOCATION" "${input[1]}"
-                ;;
-            "${input[6]}" | "5")
-                run_install_script "$JAVA_INSTALL_LOCATION"
-                ;;
-            "${input[7]}" | "6")
-				run_install_script "$AZURE_INSTALL_LOCATION"
-				;;
-
-			"${input[8]}" | "7")
-				run_install_script "$GITHUB_INSTALL_LOCATION"
-				;;
-
-			"${input[9]}" | "8")
-				run_install_script "$TERRAFORM_INSTALL_LOCATION"
-				;;
-			
-			"${input[10]}" | "9")
-				run_install_script "$BREW_INSTALL_LOCATION"
-				;;
-
-			"${input[11]}" | "10")
-				run_install_script "$DOCKER_INSTALL_LOCATION"
-				;;
-
-            "${input[12]}" | "nvim" | "11")
-                check_install_arg "$NEOVIM_INSTALL_LOCATION" "${input[1]}"
-                ;;
-
-			"${input[13]}" | "12")
-                run_install_script "$POSTGRES_INSTALL_LOCATION"
-                ;;
-
-            "${input[14]}" | "13" | "k8s")
-                run_install_script "$KUBECTL_INSTALL_LOCATION"
-                ;;
-
-            "${input[15]}" | "14")
-                run_install_script "$OBSIDIAN_INSTALL_LOCATION"
-                ;;
-
-            "${input[16]}" | "15" | "rg")
-                run_install_script "$RIPGREP_INSTALL_LOCATION"
-                ;;
-
-            "${input[17]}" | "16")
-                run_install_script "$BAT_INSTALL_LOCATION"
-                ;;
-
-            "${input[18]}" | "17")
-                run_install_script "$FD_INSTALL_LOCATION"
-                ;;
-
-            "${input[19]}" | "18")
-                run_install_script "$EZA_INSTALL_LOCATION"
-                ;;
-
-            "${input[20]}" | "19")
-                run_install_script "$SHELLCHECK_INSTALL_LOCATION"
-                ;;
-
-            "${input[21]}" | "20")
-                echo "Running all scripts sequentialy..." &&
-                run_install_script "$GO_INSTALL_LOCATION" &&
-
-                run_install_script "$DOTNET_INSTALL_LOCATION" &&
-
-                run_install_script "$RUST_INSTALL_LOCATION" &&
-                run_install_script "$NEOVIM_INSTALL_LOCATION" &&
-
-                # Node has 3 things to install
-                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "nvm" &&
-                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "pnpm" &&
-                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "yarn" &&
-                run_install_script "$JAVASCRIPT_INSTALL_LOCATION" "bun" &&
-
-                run_install_script "$JAVA_INSTALL_LOCATION" &&
-				run_install_script "$AZURE_INSTALL_LOCATION" &&
-				run_install_script "$GITHUB_INSTALL_LOCATION" &&
-				run_install_script "$TERRAFORM_INSTALL_LOCATION" &&
-				run_install_script "$BREW_INSTALL_LOCATION" &&
-				run_install_script "$DOCKER_INSTALL_LOCATION" &&
-                run_install_script "$KUBECTL_INSTALL_LOCATION" &&
-                run_install_script "$OBSIDIAN_INSTALL_LOCATION" &&
-                run_install_script "$RIPGREP_INSTALL_LOCATION" &&
-                run_install_script "$BAT_INSTALL_LOCATION" &&
-                run_install_script "$FD_INSTALL_LOCATION" &&
-                run_install_script "$EZA_INSTALL_LOCATION" &&
-                run_install_script "$SHELLCHECK_INSTALL_LOCATION" &&
-                echo "Installed everything (except postgres)";
-                ;;
-            *)
-                echo "Not an available install option ${input[0]}";
-                ;;
-        esac;
-
-        return 0;
-}
-
-use_install_script () {
-    local install_options=("go" "dotnet" "rust" "node" "java" "azure" "github" "terraform" "brew" "docker" "neovim" "postgres" "kubernetes" "obsidian" "ripgrep" "bat" "fd" "eza" "shellcheck" "all")
-
-    if [[ $# -ne 0 ]]; then
-        if [[ $# -gt 1 ]]; then
-            determine_install_script_to_use "$1" "$2" "${install_options[@]}";
-        else
-            determine_install_script_to_use "$1" "unfilled_value" "${install_options[@]}";
-        fi
-        
-        return 0;
-    fi
-
-    echo "What do you want to install?";
-    
-    select choice in "${install_options[@]}"; do
-        determine_install_script_to_use "$REPLY" "unfilled_value" "${install_options[@]}" &&
-        if [[ $? -eq 0 ]]; then
-            break;
-        fi
-    done;
-}
-
-use_install_script "$@";
+exec "$script_dir/runBashcInstaller.sh" "$tool" "$@"

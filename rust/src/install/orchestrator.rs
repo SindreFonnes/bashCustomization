@@ -159,7 +159,7 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
 
     let mut results: Vec<(String, InstallOutcome)> = Vec::new();
 
-    // Phase 0: base packages (sequential — brew first, then apt base)
+    // Phase 0: native bootstrap prerequisites first, then Homebrew.
     if !phase0.is_empty() {
         println!("=== Phase 0: Base packages ===");
         for tool in &phase0 {

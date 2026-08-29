@@ -37,11 +37,15 @@ impl crate::install::Installer for GoInstaller {
         command::exists("go") || std::path::Path::new("/usr/local/go/bin/go").is_file()
     }
 
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install go via brew");
             } else {
                 println!(

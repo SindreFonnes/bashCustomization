@@ -190,10 +190,11 @@ impl Installer for Tool {
 
 /// All registered tools in installation order.
 pub const ALL_TOOLS: &[Tool] = &[
-    // Phase 0: base (doas first — bootstraps privilege escalation)
+    // Phase 0: bootstrap native prerequisites before Homebrew. On macOS the
+    // Base installer establishes Brew through its prerequisite hook.
     Tool::Doas(tools::doas::DoasInstaller),
-    Tool::Brew(tools::brew::BrewInstaller),
     Tool::Base(tools::base::BaseInstaller),
+    Tool::Brew(tools::brew::BrewInstaller),
     // Phase 1: parallel tools
     Tool::Go(tools::go::GoInstaller),
     Tool::Rust(tools::rust_lang::RustInstaller),
@@ -230,6 +231,7 @@ pub fn find_tool(name: &str) -> Option<Tool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::platform::{Arch, Distro, Os};
 
     #[test]
     fn find_tool_known() {
@@ -269,5 +271,56 @@ mod tests {
             state_from_components(&[("one", true), ("two", true)]),
             InstallationState::Complete
         );
+    }
+
+    #[test]
+    fn formula_backed_tools_prefer_brew_on_ubuntu() {
+        let ubuntu = Platform {
+            os: Os::Linux(Distro::Ubuntu),
+            arch: Arch::X86_64,
+        };
+
+        for name in [
+            "azure",
+            "bat",
+            "dotnet",
+            "eza",
+            "fd",
+            "github",
+            "go",
+            "java",
+            "javascript",
+            "kubectl",
+            "neovim",
+            "postgres",
+            "ripgrep",
+            "rust",
+            "shellcheck",
+            "terraform",
+        ] {
+            let tool = find_tool(name).unwrap_or_else(|| panic!("missing tool {name}"));
+            assert!(tool.requires_brew(&ubuntu), "{name} should prefer Brew");
+        }
+
+        for name in ["base", "docker", "nerd-font", "obsidian"] {
+            let tool = find_tool(name).unwrap_or_else(|| panic!("missing tool {name}"));
+            assert!(
+                !tool.requires_brew(&ubuntu),
+                "{name} should keep its Linux-specific path"
+            );
+        }
+    }
+
+    #[test]
+    fn linux_base_precedes_brew_in_phase_zero() {
+        let base = ALL_TOOLS
+            .iter()
+            .position(|tool| tool.name() == "base")
+            .unwrap();
+        let brew = ALL_TOOLS
+            .iter()
+            .position(|tool| tool.name() == "brew")
+            .unwrap();
+        assert!(base < brew);
     }
 }

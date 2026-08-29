@@ -3,10 +3,10 @@
 **Effective date:** 2026-07-13<br>
 **Scope:** The supported `init.sh` and Rust `bashc install` paths.
 
-The shell files under `installScripts/` are retained as readable historical and
-migration reference material. They are not the supported installer fallback and
-are outside this policy's execution boundary. `myinstall` returns an actionable
-error when `bashc` is unavailable rather than invoking those scripts.
+The shell files under `installScripts/` are thin compatibility launchers into
+`bashc install`, so they inherit this policy. They require the Rust binary and
+return an actionable error when `bashc` is unavailable instead of maintaining
+a separate installer path.
 
 ## Required behavior
 
@@ -40,11 +40,11 @@ review before an upstream script change is accepted.
 | Neovim AppImage | Exact `x86_64` or `arm64` GitHub release asset | Mandatory `sha256:` digest from GitHub release metadata |
 | Obsidian Debian package | Exact `amd64` `.deb`; no cross-architecture fallback | Mandatory `sha256:` digest from GitHub release metadata |
 | JetBrains Mono Nerd Font | Exact release asset name | Exact entry in the release's `SHA-256.txt`; duplicate/missing entries fail |
-| Homebrew installer | Official HTTPS script | Pinned SHA-256 in source; complete download before execution |
-| rustup installer | Official HTTPS script | Pinned SHA-256 in source; complete download before execution |
+| Homebrew installer | Official HTTPS script at an immutable reviewed commit | Pinned SHA-256 in source; complete download before execution |
+| rustup | Brew formula on Brew-supported hosts; official HTTPS fallback elsewhere | Homebrew bottle verification, or pinned SHA-256 before fallback execution |
 | nvm installer | Versioned upstream URL | Pinned SHA-256 in source; complete download before execution |
-| pnpm installer | Official HTTPS script | Pinned SHA-256 in source; complete download before execution |
-| Bun installer | Official HTTPS script | Pinned SHA-256 in source; complete download before execution |
+| pnpm installer | Brew formula on Brew-supported hosts; official HTTPS fallback elsewhere | Homebrew bottle verification, or pinned SHA-256 before fallback execution |
+| Bun installer | Brew formula on Brew-supported hosts; official HTTPS fallback elsewhere | Homebrew bottle verification, or pinned SHA-256 before fallback execution |
 | Docker apt repository | Distro-specific HTTPS source | Exact Docker primary-key fingerprint plus apt Release signatures |
 | Microsoft apt repositories | Distro-specific HTTPS source | Exact Microsoft primary-key fingerprint plus apt Release signatures |
 | GitHub CLI apt repository | HTTPS source | Exact complete set of GitHub CLI primary-key fingerprints plus apt Release signatures |

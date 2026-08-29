@@ -24,7 +24,7 @@ impl crate::install::Installer for FdInstaller {
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_fedora()
+        package_manager::is_brew_applicable(platform)
     }
 
     fn installation_state(&self, platform: &Platform) -> InstallationState {
@@ -37,7 +37,7 @@ impl crate::install::Installer for FdInstaller {
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install fd via brew");
             } else if config.platform.is_debian() {
                 println!("  Would install fd-find via apt (with fdfind -> fd symlink)");

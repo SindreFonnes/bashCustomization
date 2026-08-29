@@ -165,8 +165,7 @@ if [[ -e "$local_injection_marker" ]]; then
     exit 1
 fi
 
-# General-script compatibility names must dispatch installer work to bashc,
-# never to the unverified historical download scripts.
+# General-script compatibility names must dispatch installer work to bashc.
 dispatch_bin="$test_root/dispatch-bin"
 dispatch_marker="$test_root/dispatch-args"
 mkdir -p "$dispatch_bin"
@@ -192,6 +191,33 @@ env \
     "$project_root/generalScripts/gScriptRun.sh" installNerdFont
 if [[ $(<"$dispatch_marker") != "install nerd-font" ]]; then
     printf 'gscript installNerdFont bypassed the supported installer\n' >&2
+    exit 1
+fi
+
+env \
+    PATH="$dispatch_bin:/usr/bin:/bin" \
+    BASHC_DISPATCH_MARKER="$dispatch_marker" \
+    "$project_root/installScripts/ripgrep/installRipgrep.sh"
+if [[ $(<"$dispatch_marker") != "install ripgrep" ]]; then
+    printf 'legacy ripgrep launcher bypassed bashc\n' >&2
+    exit 1
+fi
+
+env \
+    PATH="$dispatch_bin:/usr/bin:/bin" \
+    BASHC_DISPATCH_MARKER="$dispatch_marker" \
+    "$project_root/installScripts/installScript.sh" rg --dry-run
+if [[ $(<"$dispatch_marker") != "install ripgrep --dry-run" ]]; then
+    printf 'legacy installer shorthand was not preserved\n' >&2
+    exit 1
+fi
+
+env \
+    PATH="$dispatch_bin:/usr/bin:/bin" \
+    BASHC_DISPATCH_MARKER="$dispatch_marker" \
+    "$project_root/installScripts/installScript.sh" js nvm --dry-run
+if [[ $(<"$dispatch_marker") != "install javascript --dry-run" ]]; then
+    printf 'legacy JavaScript selector was not normalized\n' >&2
     exit 1
 fi
 

@@ -86,11 +86,13 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 if command -v brew >/dev/null 2>&1; then
-	_bashc_openjdk_prefix=$(brew --prefix openjdk 2>/dev/null) || _bashc_openjdk_prefix=""
-	if [ -n "$_bashc_openjdk_prefix" ]; then
-		_bashc_add_path_dir "$_bashc_openjdk_prefix/bin"
-	fi
-	unset _bashc_openjdk_prefix
+	for _bashc_formula in openjdk rustup; do
+		_bashc_formula_prefix=$(brew --prefix "$_bashc_formula" 2>/dev/null) || _bashc_formula_prefix=""
+		if [ -n "$_bashc_formula_prefix" ]; then
+			_bashc_add_path_dir "$_bashc_formula_prefix/bin"
+		fi
+	done
+	unset _bashc_formula _bashc_formula_prefix
 fi
 
 if command -v "go" >/dev/null 2>&1; then

@@ -24,12 +24,12 @@ impl crate::install::Installer for RipgrepInstaller {
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_fedora()
+        package_manager::is_brew_applicable(platform)
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install ripgrep via brew");
             } else {
                 println!("  Would install ripgrep via package manager");

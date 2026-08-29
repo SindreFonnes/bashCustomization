@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Functions
 
 ## General utility
@@ -196,14 +197,14 @@ variable_to_uppercase () {
 
 pushd_wrapper () {
 	if [[ $# -eq 0 ]]; then
-		pushd ~ &> /dev/null;
+		pushd ~ &> /dev/null || return 1;
 	else
-		pushd "$1" &> /dev/null;
+		pushd "$1" &> /dev/null || return 1;
 	fi
 }
 
 popd_wrapper () {
-	popd &> /dev/null;
+	popd &> /dev/null || return 1;
 }
 
 grep_specific_filetype_in_subfolders () {
@@ -220,30 +221,18 @@ find_entity_size () {
 }
 
 find_all_items_in_folder_size () {
-	la -1 | du -sh $(</dev/stdin);
+	find . ! -name . -prune -exec du -sh {} \;
 }
 
 get_all_files_bellow_directory () {
-	local all_files=()
-
 	local start_dir="$1";
 
 	if [[ $start_dir == "" ]]; then
 		start_dir=$(pwd);
 	fi
-	
-	for entry in $(ls -p $start_dir); do
-		if [[ $entry == *"/"* ]]; then
-			for subEntry in $(get_all_files_bellow_directory $start_dir/$entry); do
-				all_files+=("$entry$subEntry");
-			done;
-		else
-			all_files+=($entry);
-		fi
-	done
 
-	for entry in "${all_files[@]}"; do
-		echo "$entry";
+	find "$start_dir" -type f -print | while IFS= read -r entry; do
+		printf '%s\n' "${entry#"$start_dir"/}"
 	done
 }
 
@@ -537,13 +526,13 @@ _swap_zellij_session_bash_completion() {
     local candidate_lower
 
     cur="${COMP_WORDS[COMP_CWORD]}"
-    cur_lower="${cur,,}"
+    cur_lower=$(printf '%s' "$cur" | tr '[:upper:]' '[:lower:]')
 
     COMPREPLY=()
 
     # Sessions + known project names, case-insensitive.
     while IFS= read -r candidate; do
-        candidate_lower="${candidate,,}"
+        candidate_lower=$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')
 
         case "$candidate_lower" in
             "$cur_lower"*)

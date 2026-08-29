@@ -34,20 +34,24 @@ impl crate::install::Installer for NeovimInstaller {
 
     fn is_installed(&self) -> bool {
         command::exists("nvim")
-            || common::home_dir()
-                .map(|home| home.join(".mybin").join("nvim").is_file())
+            || common::user_bin_dir()
+                .map(|bin| bin.join("nvim").is_file())
                 .unwrap_or(false)
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install neovim via brew");
             } else {
                 println!(
-                    "  Would download the architecture-specific Neovim AppImage, verify its GitHub SHA-256 digest, and atomically install it to ~/.mybin/nvim"
+                    "  Would download the architecture-specific Neovim AppImage, verify its GitHub SHA-256 digest, and atomically install it to the configured user bin directory"
                 );
             }
             return Ok(());
@@ -103,7 +107,7 @@ fn install_neovim_appimage(architecture: Arch) -> Result<()> {
 }
 
 fn dirs_mybin() -> Result<std::path::PathBuf> {
-    let mybin = common::home_dir()?.join(".mybin");
+    let mybin = common::user_bin_dir()?;
     std::fs::create_dir_all(&mybin)?;
     Ok(mybin)
 }

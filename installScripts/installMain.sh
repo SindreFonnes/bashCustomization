@@ -21,7 +21,7 @@ run_my_install () {
     fi
 
     printf 'bashc: the Rust binary is required for supported installs; run %s/init.sh or build %s/rust\n' "$bashC" "$bashC" >&2
-    printf 'bashc: legacy installScripts are retained as reference material and are not a verified fallback\n' >&2
+    printf 'bashc: installScripts are compatibility launchers and require the Rust binary\n' >&2
     return 1
 }
 

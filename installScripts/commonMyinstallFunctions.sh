@@ -60,30 +60,33 @@ script_check_if_allready_installed () {
     return 0;
 }
 
-# Ensures brew is installed on macOS and returns the brew prefix
+# Ensures brew is installed through the supported Rust installer and returns
+# the active prefix. This works for both macOS and supported Linux hosts.
 # Usage: BREW_PREFIX=$(ensure_brew_installed)
 ensure_brew_installed () {
-    if [[ "$OSTYPE" != *"darwin"* ]]; then
-        echo "ERROR: ensure_brew_installed() should only be called on macOS" >&2
-        return 1;
-    fi
-    
     local BREW_PREFIX
     BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
-    
+
     if [[ -z "${BREW_PREFIX}" ]]; then
         echo "Homebrew not found. Installing Homebrew..." >&2
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        
+        if ! command -v bashc >/dev/null 2>&1; then
+            echo "ERROR: bashc is required to install Homebrew safely" >&2
+            return 1
+        fi
+        # Keep stdout reserved for the prefix returned by this function.
+        bashc install brew >&2 || return 1
+
         # Evaluate shellenv to make brew available in current session
         if [[ -x /opt/homebrew/bin/brew ]]; then
             eval "$(/opt/homebrew/bin/brew shellenv)"
         elif [[ -x /usr/local/bin/brew ]]; then
             eval "$(/usr/local/bin/brew shellenv)"
+        elif [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
         fi
-        
+
         BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
-        
+
         if [[ -z "${BREW_PREFIX}" ]]; then
             echo "ERROR: Failed to install or locate Homebrew" >&2
             return 1;
@@ -163,6 +166,6 @@ run_my_install () {
 
     local project_root=${bashC:-"$HOME/bashCustomization"}
     echo "bashc: the Rust binary is required for supported installs; run $project_root/init.sh or build $project_root/rust" >&2
-    echo "bashc: legacy installScripts are retained as reference material and are not a verified fallback" >&2
+    echo "bashc: installScripts are compatibility launchers and require the Rust binary" >&2
     return 1
 }

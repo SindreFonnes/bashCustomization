@@ -11,8 +11,8 @@ impl crate::install::Installer for BrewInstaller {
         "brew"
     }
 
-    fn needs_sudo(&self, _platform: &Platform) -> bool {
-        false
+    fn needs_sudo(&self, platform: &Platform) -> bool {
+        package_manager::brew_bootstrap_needs_sudo(platform)
     }
 
     fn is_installed(&self) -> bool {
@@ -56,24 +56,17 @@ mod tests {
     use crate::install::Installer;
 
     #[test]
-    fn needs_sudo_always_false() {
-        let platforms = [
-            Platform {
-                os: Os::Linux(Distro::Debian),
-                arch: Arch::X86_64,
-            },
-            Platform {
-                os: Os::MacOs,
-                arch: Arch::Aarch64,
-            },
-            Platform {
-                os: Os::Linux(Distro::NixOs),
-                arch: Arch::X86_64,
-            },
-        ];
-        for p in &platforms {
-            assert!(!BrewInstaller.needs_sudo(p));
-        }
+    fn needs_sudo_is_false_on_non_linuxbrew_platforms() {
+        let mac = Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        };
+        let nixos = Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        };
+        assert!(!BrewInstaller.needs_sudo(&mac));
+        assert!(!BrewInstaller.needs_sudo(&nixos));
     }
 
     #[test]

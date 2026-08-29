@@ -29,14 +29,14 @@ impl crate::install::Installer for TerraformInstaller {
     }
 
     fn requires_brew(&self, platform: &Platform) -> bool {
-        platform.is_mac() || platform.is_fedora()
+        package_manager::is_brew_applicable(platform)
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install terraform via brew");
             } else {
                 println!("  Would install terraform via apt (HashiCorp GPG key + repo)");
@@ -46,7 +46,8 @@ impl crate::install::Installer for TerraformInstaller {
 
         if !package_manager::is_brew_failed() && package_manager::has_brew() {
             println!("Installing Terraform via brew...");
-            return package_manager::brew_install("terraform");
+            package_manager::brew_tap("hashicorp/tap")?;
+            return package_manager::brew_install("hashicorp/tap/terraform");
         }
 
         install_terraform_apt(platform)
