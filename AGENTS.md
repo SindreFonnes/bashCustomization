@@ -13,6 +13,7 @@
 - `shellFunctionality/` — shell aliases and functions
 - `programExtensions/` — per-program extensions (git, rust, bun, nvim, etc.)
 - `installScripts/` — install helpers for tools and languages
+- `configs/` — version-controlled config files managed by `bashc configs`. See `configs/README.md` for the per-platform-file convention and shell-startup behavior.
 - `generalScripts/` — standalone utility scripts (git config, SSL certs, GPG, etc.)
 - `local/` — machine-specific overrides (not committed)
 

@@ -94,7 +94,11 @@ async fn rustc_version_works() {
     let container = setup::get_container().await;
     // rustup installs to ~/.cargo/bin; source the env or add to PATH.
     let result = container
-        .exec(&["sh", "-c", "PATH=\"$HOME/.cargo/bin:$PATH\" rustc --version"])
+        .exec(&[
+            "sh",
+            "-c",
+            "PATH=\"$HOME/.cargo/bin:$PATH\" rustc --version",
+        ])
         .await
         .expect("exec failed");
 

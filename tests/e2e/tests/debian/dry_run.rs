@@ -1,6 +1,4 @@
-use bashc_e2e::assertions::{
-    assert_exit_ok, assert_stdout_contains, assert_stdout_not_contains,
-};
+use bashc_e2e::assertions::{assert_exit_ok, assert_stdout_contains, assert_stdout_not_contains};
 
 use crate::setup;
 
@@ -25,6 +23,18 @@ async fn dry_run_detects_debian() {
 
     assert_exit_ok(&result);
     assert_stdout_contains(&result, "Debian");
+}
+
+#[tokio::test]
+async fn dry_run_routes_formula_tools_through_brew() {
+    let container = setup::get_container().await;
+    let result = container
+        .exec(&["bashc", "install", "--dry-run", "ripgrep"])
+        .await
+        .expect("exec failed");
+
+    assert_exit_ok(&result);
+    assert_stdout_contains(&result, "Would install ripgrep via brew");
 }
 
 #[tokio::test]

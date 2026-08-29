@@ -29,8 +29,7 @@ pub async fn get_container() -> &'static TestContainer {
 }
 
 async fn init_container() -> Result<TestContainer> {
-    let docker =
-        Docker::connect_with_local_defaults().context("connecting to Docker daemon")?;
+    let docker = Docker::connect_with_local_defaults().context("connecting to Docker daemon")?;
 
     let repo = repo_root();
     let docker_path = docker_dir();
@@ -50,7 +49,10 @@ async fn init_container() -> Result<TestContainer> {
 
     // Step 2: Extract the bashc binary from the builder image into tests/docker/bashc.
     let binary_dest = docker_path.join("bashc");
-    println!("==> Extracting bashc binary to {}...", binary_dest.display());
+    println!(
+        "==> Extracting bashc binary to {}...",
+        binary_dest.display()
+    );
     TestContainer::extract_binary(&docker, BUILDER_IMAGE_TAG, &binary_dest)
         .await
         .context("extracting bashc binary")?;
@@ -59,23 +61,17 @@ async fn init_container() -> Result<TestContainer> {
     // Step 3: Build the Fedora test image.
     // Build context is tests/docker/ because Dockerfile.fedora COPYs bashc from that dir.
     println!("==> Building Fedora test image ({FEDORA_IMAGE_TAG})...");
-    TestContainer::build_image(
-        &docker,
-        FEDORA_IMAGE_TAG,
-        "Dockerfile.fedora",
-        &docker_path,
-    )
-    .await
-    .context("building Fedora test image")?;
+    TestContainer::build_image(&docker, FEDORA_IMAGE_TAG, "Dockerfile.fedora", &docker_path)
+        .await
+        .context("building Fedora test image")?;
     println!("==> Fedora image ready.");
 
     // Step 4: Create and start the test container.
     // Note: create_and_start removes any leftover container with the same name.
     println!("==> Starting container ({CONTAINER_NAME})...");
-    let container =
-        TestContainer::create_and_start(&docker, FEDORA_IMAGE_TAG, CONTAINER_NAME)
-            .await
-            .context("creating and starting Fedora container")?;
+    let container = TestContainer::create_and_start(&docker, FEDORA_IMAGE_TAG, CONTAINER_NAME)
+        .await
+        .context("creating and starting Fedora container")?;
     println!("==> Container running.");
 
     Ok(container)

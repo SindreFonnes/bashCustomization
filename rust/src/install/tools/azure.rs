@@ -1,7 +1,12 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
 use crate::install::InstallConfig;
+
+const MICROSOFT_APT_KEY_FINGERPRINTS: &[&str] = &["BC528686B50D79E339D3721CEB3E94ADBE1229CF"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct AzureInstaller;
@@ -19,11 +24,19 @@ impl crate::install::Installer for AzureInstaller {
         command::exists("az")
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install azure-cli via brew");
             } else {
                 println!("  Would install azure-cli via apt (Microsoft GPG key + repo)");
@@ -53,14 +66,10 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://packages.microsoft.com/keys/microsoft.asc",
         "/etc/apt/keyrings/microsoft.gpg",
+        MICROSOFT_APT_KEY_FINGERPRINTS,
     )?;
 
-    let arch = platform.go_arch();
-    let dpkg_arch = match arch {
-        "amd64" => "amd64",
-        "arm64" => "arm64",
-        _ => arch,
-    };
+    let dpkg_arch = platform.go_arch();
 
     let codename = platform::get_apt_codename().ok_or_else(|| {
         anyhow::anyhow!(
@@ -74,10 +83,7 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding Azure CLI apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/azure-cli.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/azure-cli.list")?;
 
     println!("Installing azure-cli...");
     package_manager::apt_install("azure-cli")?;
@@ -85,4 +91,3 @@ fn install_azure_apt(platform: &Platform) -> Result<()> {
     println!("Azure CLI installed");
     Ok(())
 }
-

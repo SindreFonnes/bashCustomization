@@ -1,12 +1,22 @@
+use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use super::command;
+use super::download;
 use super::platform::{Distro, Platform};
 use super::privilege;
 
 static BREW_FAILED: AtomicBool = AtomicBool::new(false);
+
+// Pin the installer to an immutable reviewed commit. A mutable HEAD URL makes
+// the checksum stale whenever Homebrew updates the script.
+const HOMEBREW_INSTALL_URL: &str = "https://raw.githubusercontent.com/Homebrew/install/150c69df1e54b0b74c9fcca5a201410a2300816a/install.sh";
+const HOMEBREW_INSTALL_SHA256: &str =
+    "12479a24be3f5307eecac7cde670fad7118640f031229e964f544b1367b52a41";
 
 /// Mark brew as failed for the remainder of this run.
 pub fn set_brew_failed() {
@@ -30,10 +40,30 @@ pub fn is_brew_applicable(platform: &Platform) -> bool {
     if platform.is_mac() {
         return true;
     }
-    match platform.distro() {
-        Some(Distro::Debian | Distro::Ubuntu | Distro::Fedora) => true,
-        _ => false,
-    }
+    matches!(
+        platform.distro(),
+        Some(Distro::Debian | Distro::Ubuntu | Distro::Fedora)
+    )
+}
+
+/// Whether planning output should select the Brew route for this run.
+pub fn prefers_brew(platform: &Platform) -> bool {
+    is_brew_applicable(platform) && !is_brew_failed()
+}
+
+/// Whether installing Homebrew itself needs distro-native bootstrap packages.
+/// An existing installation at a standard prefix is activated without sudo.
+pub fn brew_bootstrap_needs_sudo(platform: &Platform) -> bool {
+    platform.is_linux()
+        && !has_brew()
+        && known_brew_executable(platform).is_none()
+        && !linuxbrew_prerequisites_present()
+}
+
+fn linuxbrew_prerequisites_present() -> bool {
+    ["bash", "cc", "curl", "file", "git", "make", "ps"]
+        .iter()
+        .all(|program| command::exists(program))
 }
 
 /// Ensure Homebrew is installed. On macOS: /opt/homebrew or /usr/local.
@@ -48,85 +78,161 @@ pub fn ensure_brew(platform: &Platform) -> Result<()> {
         return Ok(());
     }
 
+    // Homebrew may already be installed at its standard prefix without that
+    // prefix being active in this process (especially on Apple Silicon and
+    // fresh Linux installs). Activate it before attempting another install.
+    if let Some(brew) = known_brew_executable(platform) {
+        return activate_homebrew(&brew);
+    }
+
     if is_brew_failed() {
         bail!("Homebrew installation previously failed this run — skipping");
     }
 
     println!("Installing Homebrew...");
-
-    if platform.is_mac() {
-        // Official Homebrew installer
-        let result = command::run_visible(
-            "bash",
-            &[
-                "-c",
-                "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-            ],
-        );
-
-        if result.is_err() {
-            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
-            set_brew_failed();
-            return result;
-        }
-
-        // Activate brew in current process by parsing `brew shellenv`
-        if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-            let shellenv = command::run("/opt/homebrew/bin/brew", &["shellenv"])?;
-            apply_shellenv(&shellenv);
-        }
-    } else if platform.is_linux() {
-        let result = command::run_visible(
-            "bash",
-            &[
-                "-c",
-                "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-            ],
-        );
-
-        if result.is_err() {
-            eprintln!("Homebrew installation failed — falling back to native package manager for remaining tools.");
-            set_brew_failed();
-            return result;
-        }
-
-        // Activate Linuxbrew in the current process
-        if std::path::Path::new("/home/linuxbrew/.linuxbrew/bin/brew").exists() {
-            let shellenv =
-                command::run("/home/linuxbrew/.linuxbrew/bin/brew", &["shellenv"])?;
-            apply_shellenv(&shellenv);
-        }
+    if let Err(error) = install_linuxbrew_prerequisites(platform) {
+        set_brew_failed();
+        return Err(error).context("Homebrew native prerequisites could not be installed");
+    }
+    if let Err(error) = command::require_all(&["bash", "curl"]) {
+        set_brew_failed();
+        return Err(error).context("Homebrew bootstrap prerequisites are not satisfied");
     }
 
-    if !has_brew() {
+    let result = download::run_verified_script(
+        HOMEBREW_INSTALL_URL,
+        HOMEBREW_INSTALL_SHA256,
+        "env",
+        &["NONINTERACTIVE=1", "/bin/bash"],
+        &[],
+    );
+
+    if result.is_err() {
+        eprintln!("Homebrew installation failed.");
         set_brew_failed();
-        bail!("Homebrew installation completed but brew is not on PATH");
+        return result;
+    }
+
+    let Some(brew) = known_brew_executable(platform) else {
+        set_brew_failed();
+        bail!(
+            "Homebrew installation completed but no brew executable was found at a supported prefix"
+        );
+    };
+
+    if let Err(error) = activate_homebrew(&brew) {
+        set_brew_failed();
+        return Err(error).context("Homebrew installed but could not be activated");
     }
 
     Ok(())
 }
 
-/// Parse `brew shellenv` output and apply env vars to the current process.
-///
-/// Handles `$PATH`/`${PATH}` expansion so we don't clobber the process PATH
-/// with a literal `$PATH` string.
-fn apply_shellenv(shellenv: &str) {
-    for line in shellenv.lines() {
-        // Parse lines like: export HOMEBREW_PREFIX="/opt/homebrew"
-        if let Some(rest) = line.strip_prefix("export ") {
-            if let Some((key, value)) = rest.split_once('=') {
-                let mut value = value.trim_matches('"').trim_matches(';').to_string();
-                // Expand $PATH / ${PATH} references against current env
-                if let Ok(current) = std::env::var(key) {
-                    value = value
-                        .replace(&format!("${{{key}}}"), &current)
-                        .replace(&format!("${key}"), &current);
-                }
-                // SAFETY: runs during single-threaded init before parallel installs
-                unsafe { std::env::set_var(key, &value); }
+/// Install the packages required by Homebrew's Linux installer. This keeps a
+/// direct `bashc install brew` equivalent to the Brew step in `install all`.
+fn install_linuxbrew_prerequisites(platform: &Platform) -> Result<()> {
+    if !brew_bootstrap_needs_sudo(platform) {
+        return Ok(());
+    }
+
+    match platform.distro() {
+        Some(Distro::Debian | Distro::Ubuntu) => {
+            println!("Installing Linuxbrew prerequisites via apt...");
+            privilege::run_privileged("apt-get", &["update"])?;
+            privilege::run_privileged(
+                "apt-get",
+                &[
+                    "install",
+                    "-y",
+                    "build-essential",
+                    "ca-certificates",
+                    "curl",
+                    "file",
+                    "git",
+                    "procps",
+                ],
+            )
+            .context("installing Linuxbrew prerequisites via apt")
+        }
+        Some(Distro::Fedora) => {
+            println!("Installing Linuxbrew prerequisites via dnf...");
+            privilege::run_privileged(
+                "dnf",
+                &[
+                    "install",
+                    "-y",
+                    "gcc",
+                    "gcc-c++",
+                    "make",
+                    "ca-certificates",
+                    "curl",
+                    "file",
+                    "git",
+                    "procps-ng",
+                ],
+            )
+            .context("installing Linuxbrew prerequisites via dnf")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn known_brew_executable(platform: &Platform) -> Option<PathBuf> {
+    let candidates: &[&str] = if platform.is_mac() {
+        &["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+    } else {
+        &["/home/linuxbrew/.linuxbrew/bin/brew"]
+    };
+
+    candidates
+        .iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+}
+
+/// Activate a verified local Homebrew installation without evaluating or
+/// partially parsing the shell program emitted by `brew shellenv`.
+fn activate_homebrew(brew: &Path) -> Result<()> {
+    let brew_program = path_arg(brew)?;
+    let prefix = PathBuf::from(command::run(brew_program, &["--prefix"])?);
+    if !prefix.is_absolute() {
+        bail!(
+            "Homebrew returned a non-absolute prefix from {}: {}",
+            brew.display(),
+            prefix.display()
+        );
+    }
+
+    let path = homebrew_path(&prefix, std::env::var_os("PATH").as_deref())?;
+    // SAFETY: installer orchestration is single-threaded and updates the
+    // process environment before spawning any subsequent tool installers.
+    unsafe {
+        std::env::set_var("HOMEBREW_PREFIX", &prefix);
+        std::env::set_var("PATH", path);
+    }
+
+    if !has_brew() {
+        bail!(
+            "Homebrew executable {} is still unavailable after activating prefix {}",
+            brew.display(),
+            prefix.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn homebrew_path(prefix: &Path, current: Option<&OsStr>) -> Result<OsString> {
+    let mut entries = vec![prefix.join("bin"), prefix.join("sbin")];
+    if let Some(current) = current {
+        for entry in std::env::split_paths(current) {
+            if !entries.contains(&entry) {
+                entries.push(entry);
             }
         }
     }
+
+    std::env::join_paths(entries).context("constructing PATH for Homebrew activation")
 }
 
 /// Install a package via brew.
@@ -137,6 +243,11 @@ pub fn brew_install(package: &str) -> Result<()> {
 /// Install a brew cask (macOS only).
 pub fn brew_install_cask(package: &str) -> Result<()> {
     command::run_visible("brew", &["install", "--cask", package])
+}
+
+/// Add an official or third-party Homebrew tap when a formula is not in core.
+pub fn brew_tap(tap: &str) -> Result<()> {
+    command::run_visible("brew", &["tap", tap])
 }
 
 /// Install a package using the preferred method for the platform.
@@ -152,7 +263,16 @@ pub fn brew_install_cask(package: &str) -> Result<()> {
 pub fn install(platform: &Platform, package: &str) -> Result<()> {
     // macOS: brew only
     if platform.is_mac() {
+        ensure_brew(platform).context("Homebrew is required for package installation on macOS")?;
         return brew_install(package);
+    }
+
+    // A single-tool install must establish the same preferred package-manager
+    // prerequisite that `install all` establishes in its base phase. On Linux,
+    // a failed Homebrew bootstrap records the failure and falls back to the
+    // distro-native manager below.
+    if is_brew_applicable(platform) && !is_brew_failed() && !has_brew() {
+        let _ = ensure_brew(platform);
     }
 
     // Linux/WSL: route based on distro
@@ -189,25 +309,19 @@ pub fn install(platform: &Platform, package: &str) -> Result<()> {
 /// Install a package via dnf (Fedora/RHEL/CentOS).
 /// Stub — not yet implemented.
 pub fn dnf_install(package: &str) -> Result<()> {
-    bail!(
-        "Fedora/RHEL support not yet implemented. Would install: {package}"
-    )
+    bail!("Fedora/RHEL support not yet implemented. Would install: {package}")
 }
 
 /// Install a package via pacman (Arch/Manjaro).
 /// Stub — not yet implemented.
 pub fn pacman_install(package: &str) -> Result<()> {
-    bail!(
-        "Arch Linux support not yet implemented. Would install: {package}"
-    )
+    bail!("Arch Linux support not yet implemented. Would install: {package}")
 }
 
 /// Install a package via apk (Alpine).
 /// Stub — not yet implemented.
 pub fn apk_install(package: &str) -> Result<()> {
-    bail!(
-        "Alpine Linux support not yet implemented. Would install: {package}"
-    )
+    bail!("Alpine Linux support not yet implemented. Would install: {package}")
 }
 
 /// Print declarative guidance for NixOS users.
@@ -226,32 +340,153 @@ pub fn apt_install(package: &str) -> Result<()> {
     privilege::run_privileged("apt-get", &["install", "-y", package])
 }
 
-/// Download a GPG key and install it for apt.
-pub fn apt_add_gpg_key(url: &str, keyring_path: &str) -> Result<()> {
-    // Ensure /etc/apt/keyrings exists
-    privilege::run_privileged("mkdir", &["-p", "/etc/apt/keyrings"])?;
+/// Download a GPG key, verify its primary-key fingerprints, and install it for apt.
+///
+/// Requiring the complete expected primary-key set prevents a compromised download
+/// location from silently replacing the repository key or appending another trusted
+/// primary key to the installed keyring.
+pub fn apt_add_gpg_key(
+    url: &str,
+    keyring_path: &str,
+    expected_primary_fingerprints: &[&str],
+) -> Result<()> {
+    if expected_primary_fingerprints.is_empty() {
+        bail!("at least one expected GPG primary-key fingerprint is required")
+    }
+
+    let temp_dir = tempfile::tempdir().context("creating temporary directory for apt key")?;
+    let key_path = temp_dir.path().join("repo-key");
+
+    if !command::exists("gpg") {
+        privilege::run_privileged("apt-get", &["update", "-qq"])?;
+        privilege::run_privileged("apt-get", &["install", "-y", "-qq", "gnupg"])?;
+    }
 
     if url.ends_with(".gpg") {
-        // Already a binary keyring — download directly without dearmoring
-        let cmd = format!("curl -fsSL '{}' -o '{}'", url, keyring_path);
-        privilege::run_privileged("bash", &["-c", &cmd])
+        download::download_file(url, &key_path)?;
+        verify_gpg_primary_fingerprints(&key_path, expected_primary_fingerprints)?;
+        install_apt_file(&key_path, keyring_path)
     } else {
-        // ASCII-armored key (.asc or bare) — ensure gpg is available, then dearmor
-        let cmd = format!(
-            "if ! command -v gpg >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq gnupg; fi; \
-             curl -fsSL '{}' | gpg --dearmor -o '{}'",
-            url, keyring_path
-        );
-        privilege::run_privileged("bash", &["-c", &cmd])
+        let armored_path = temp_dir.path().join("repo-key.asc");
+        let dearmored_path = temp_dir.path().join("repo-key.gpg");
+        download::download_file(url, &armored_path)?;
+        verify_gpg_primary_fingerprints(&armored_path, expected_primary_fingerprints)?;
+
+        command::run_visible(
+            "gpg",
+            &[
+                "--dearmor",
+                "-o",
+                path_arg(&dearmored_path)?,
+                path_arg(&armored_path)?,
+            ],
+        )?;
+
+        install_apt_file(&dearmored_path, keyring_path)
     }
+}
+
+fn verify_gpg_primary_fingerprints(
+    key_path: &std::path::Path,
+    expected_primary_fingerprints: &[&str],
+) -> Result<()> {
+    let output = command::run(
+        "gpg",
+        &[
+            "--batch",
+            "--show-keys",
+            "--with-colons",
+            path_arg(key_path)?,
+        ],
+    )
+    .with_context(|| format!("inspecting downloaded GPG key {}", key_path.display()))?;
+
+    let actual = primary_fingerprints_from_gpg_colons(&output)?;
+    let expected = expected_primary_fingerprints
+        .iter()
+        .map(|fingerprint| normalize_fingerprint(fingerprint))
+        .collect::<Result<BTreeSet<_>>>()?;
+
+    if actual != expected {
+        bail!(
+            "downloaded GPG primary-key fingerprint mismatch for {}:\n  expected: {}\n  actual:   {}",
+            key_path.display(),
+            expected.iter().cloned().collect::<Vec<_>>().join(", "),
+            actual.iter().cloned().collect::<Vec<_>>().join(", ")
+        )
+    }
+
+    Ok(())
+}
+
+fn primary_fingerprints_from_gpg_colons(output: &str) -> Result<BTreeSet<String>> {
+    let mut fingerprints = BTreeSet::new();
+    let mut awaiting_primary_fingerprint = false;
+
+    for line in output.lines() {
+        let fields = line.split(':').collect::<Vec<_>>();
+        match fields.first().copied() {
+            Some("pub") => awaiting_primary_fingerprint = true,
+            Some("sub") => awaiting_primary_fingerprint = false,
+            Some("fpr") if awaiting_primary_fingerprint => {
+                let fingerprint = fields.get(9).copied().unwrap_or_default();
+                fingerprints.insert(normalize_fingerprint(fingerprint)?);
+                awaiting_primary_fingerprint = false;
+            }
+            _ => {}
+        }
+    }
+
+    if fingerprints.is_empty() {
+        bail!("downloaded file did not contain a GPG primary-key fingerprint")
+    }
+
+    Ok(fingerprints)
+}
+
+fn normalize_fingerprint(fingerprint: &str) -> Result<String> {
+    let normalized = fingerprint
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+
+    if normalized.len() != 40
+        || !normalized
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        bail!("invalid GPG fingerprint: {fingerprint}")
+    }
+
+    Ok(normalized)
 }
 
 /// Add an apt repository source file and run apt update.
 pub fn apt_add_repo(repo_line: &str, list_file: &str) -> Result<()> {
-    let cmd = format!("echo '{}' | tee {}", repo_line, list_file);
+    let temp_dir = tempfile::tempdir().context("creating temporary directory for apt repo")?;
+    let source_path = temp_dir.path().join("repo.list");
+    std::fs::write(&source_path, format!("{repo_line}\n"))
+        .with_context(|| format!("writing {}", source_path.display()))?;
 
-    privilege::run_privileged("bash", &["-c", &cmd])?;
+    install_apt_file(&source_path, list_file)?;
     privilege::run_privileged("apt-get", &["update"])
+}
+
+fn install_apt_file(source: &std::path::Path, destination: &str) -> Result<()> {
+    if !std::path::Path::new(destination).is_absolute() {
+        bail!("apt destination must be absolute: {destination}");
+    }
+
+    privilege::run_privileged(
+        "install",
+        &["-D", "-m", "0644", "--", path_arg(source)?, destination],
+    )
+}
+
+fn path_arg(path: &std::path::Path) -> Result<&str> {
+    path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("path is not valid UTF-8: {}", path.display()))
 }
 
 /// Returns true if on Linux and not root (needs sudo/privilege escalation
@@ -259,6 +494,7 @@ pub fn apt_add_repo(repo_line: &str, list_file: &str) -> Result<()> {
 ///
 /// NixOS never needs sudo for package operations (declarative model).
 /// macOS does not use apt, so always returns false.
+#[allow(dead_code)]
 pub fn needs_sudo_for_native_pkg(platform: &Platform) -> bool {
     if platform.is_mac() {
         return false;
@@ -270,6 +506,7 @@ pub fn needs_sudo_for_native_pkg(platform: &Platform) -> bool {
 }
 
 /// Legacy alias — prefer `needs_sudo_for_native_pkg`.
+#[allow(dead_code)]
 pub fn needs_sudo_for_apt(platform: &Platform) -> bool {
     needs_sudo_for_native_pkg(platform)
 }
@@ -342,6 +579,12 @@ mod tests {
     #[test]
     fn brew_applicable_on_macos() {
         assert!(is_brew_applicable(&mac()));
+    }
+
+    #[test]
+    fn homebrew_installer_uses_an_immutable_commit_url() {
+        assert!(!HOMEBREW_INSTALL_URL.contains("/HEAD/"));
+        assert!(HOMEBREW_INSTALL_URL.contains("150c69df1e54b0b74c9fcca5a201410a2300816a"));
     }
 
     #[test]
@@ -422,7 +665,10 @@ mod tests {
             msg.contains("Fedora/RHEL support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -434,7 +680,10 @@ mod tests {
             msg.contains("Arch Linux support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -446,7 +695,10 @@ mod tests {
             msg.contains("Alpine Linux support not yet implemented"),
             "unexpected error: {msg}"
         );
-        assert!(msg.contains("vim"), "error should contain package name: {msg}");
+        assert!(
+            msg.contains("vim"),
+            "error should contain package name: {msg}"
+        );
     }
 
     #[test]
@@ -548,71 +800,43 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // apply_shellenv
+    // Homebrew activation PATH
     // -----------------------------------------------------------------------
 
     #[test]
-    fn apply_shellenv_sets_simple_var() {
-        let input = r#"export HOMEBREW_PREFIX="/opt/homebrew""#;
-        apply_shellenv(input);
+    fn homebrew_path_prepends_required_entries_without_duplicates() {
+        let prefix = Path::new("/opt/homebrew");
+        let current = std::env::join_paths([
+            Path::new("/usr/bin"),
+            Path::new("/opt/homebrew/bin"),
+            Path::new("/bin"),
+        ])
+        .unwrap();
+
+        let path = homebrew_path(prefix, Some(&current)).unwrap();
+        let entries = std::env::split_paths(&path).collect::<Vec<_>>();
+
         assert_eq!(
-            std::env::var("HOMEBREW_PREFIX").unwrap(),
-            "/opt/homebrew"
+            entries,
+            vec![
+                prefix.join("bin"),
+                prefix.join("sbin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
         );
-        // Clean up
-        unsafe { std::env::remove_var("HOMEBREW_PREFIX"); }
     }
 
     #[test]
-    fn apply_shellenv_expands_path_braces() {
-        // Set a known value so expansion is predictable
-        unsafe { std::env::set_var("TEST_SHELLENV_PATH", "/original"); }
+    fn homebrew_path_works_without_an_existing_path() {
+        let prefix = Path::new("/home/linuxbrew/.linuxbrew");
 
-        let input = r#"export TEST_SHELLENV_PATH="/opt/homebrew/bin:${TEST_SHELLENV_PATH}""#;
-        apply_shellenv(input);
+        let path = homebrew_path(prefix, None).unwrap();
+
         assert_eq!(
-            std::env::var("TEST_SHELLENV_PATH").unwrap(),
-            "/opt/homebrew/bin:/original",
-            "should expand ${{TEST_SHELLENV_PATH}} to the current value"
+            std::env::split_paths(&path).collect::<Vec<_>>(),
+            vec![prefix.join("bin"), prefix.join("sbin")]
         );
-        // Clean up
-        unsafe { std::env::remove_var("TEST_SHELLENV_PATH"); }
-    }
-
-    #[test]
-    fn apply_shellenv_expands_path_dollar() {
-        unsafe { std::env::set_var("TEST_SHELLENV_PATH2", "/existing"); }
-
-        let input = r#"export TEST_SHELLENV_PATH2="/new/bin:$TEST_SHELLENV_PATH2""#;
-        apply_shellenv(input);
-        assert_eq!(
-            std::env::var("TEST_SHELLENV_PATH2").unwrap(),
-            "/new/bin:/existing",
-            "should expand $TEST_SHELLENV_PATH2 to the current value"
-        );
-        unsafe { std::env::remove_var("TEST_SHELLENV_PATH2"); }
-    }
-
-    #[test]
-    fn apply_shellenv_no_clobber_when_var_unset() {
-        // If the var doesn't exist yet, literal value should be set as-is
-        // (no expansion needed since there's nothing to expand from)
-        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
-        let input = r#"export TEST_SHELLENV_NEW="/brand/new/path""#;
-        apply_shellenv(input);
-        assert_eq!(
-            std::env::var("TEST_SHELLENV_NEW").unwrap(),
-            "/brand/new/path"
-        );
-        unsafe { std::env::remove_var("TEST_SHELLENV_NEW"); }
-    }
-
-    #[test]
-    fn apply_shellenv_skips_non_export_lines() {
-        let input = "# comment\neval \"something\"\nexport TEST_SHELLENV_ONLY=\"yes\"";
-        apply_shellenv(input);
-        assert_eq!(std::env::var("TEST_SHELLENV_ONLY").unwrap(), "yes");
-        unsafe { std::env::remove_var("TEST_SHELLENV_ONLY"); }
     }
 
     // -----------------------------------------------------------------------
@@ -632,5 +856,39 @@ mod tests {
     #[test]
     fn gpg_url_bare_needs_dearmor() {
         assert!(!"https://download.docker.com/linux/ubuntu/gpg".ends_with(".gpg"));
+    }
+
+    #[test]
+    fn extracts_only_primary_fingerprints_from_gpg_colons() {
+        let output = concat!(
+            "pub:-:4096:1:23F3D4EA75716059:0:0::-:::scESC::::::23::0:\n",
+            "fpr:::::::::2C6106201985B60E6C7AC87323F3D4EA75716059:\n",
+            "sub:-:4096:1:E5FAF19590714157:0:0:::::e::::::23:\n",
+            "fpr:::::::::5700BAB26C8DE75F3EE323FEE5FAF19590714157:\n",
+            "pub:-:4096:1:5612B36462313325:0:0::-:::scESC::::::23::0:\n",
+            "fpr:::::::::7F38BBB59D064DBCB3D84D725612B36462313325:\n",
+        );
+
+        let fingerprints = primary_fingerprints_from_gpg_colons(output).unwrap();
+        assert_eq!(
+            fingerprints,
+            BTreeSet::from([
+                "2C6106201985B60E6C7AC87323F3D4EA75716059".to_string(),
+                "7F38BBB59D064DBCB3D84D725612B36462313325".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn fingerprint_normalization_accepts_grouped_upper_or_lowercase_hex() {
+        assert_eq!(
+            normalize_fingerprint("bc52 8686 b50d 79e3 39d3 721c eb3e 94ad be12 29cf").unwrap(),
+            "BC528686B50D79E339D3721CEB3E94ADBE1229CF"
+        );
+    }
+
+    #[test]
+    fn fingerprint_normalization_rejects_short_values() {
+        assert!(normalize_fingerprint("BE1229CF").is_err());
     }
 }

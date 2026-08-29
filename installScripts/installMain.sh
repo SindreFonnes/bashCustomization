@@ -1,23 +1,28 @@
-if [[ $bashC != "" ]]; then
+# shellcheck shell=bash
+
+if [[ -n ${bashC:-} ]]; then
     export MYINSTALL_SCRIPT_FOLDER_LOCATION=$bashC/installScripts;
 else
-    export MYINSTALL_SCRIPT_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
+    # BASH_SOURCE is also populated by zsh when it sources this file.
+    # shellcheck disable=SC2128
+    MYINSTALL_SCRIPT_FOLDER_LOCATION=$( cd -- "$( dirname -- "$BASH_SOURCE" )" &> /dev/null && pwd );
+    export MYINSTALL_SCRIPT_FOLDER_LOCATION
 fi
 
 export MYINSTALL_COMMON_FUNCTIONS_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/commonMyinstallFunctions.sh;
 export MYINSTALL_SCRIPT_LOCATION=$MYINSTALL_SCRIPT_FOLDER_LOCATION/installScript.sh
 
-source "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh";
+_bashc_source_file "$MYINSTALL_SCRIPT_FOLDER_LOCATION/installAliases.sh" || return 1
 
 run_my_install () {
-    # Prefer bashc Rust binary when available
     if command -v bashc &> /dev/null; then
         bashc install "$@";
         return $?;
     fi
 
-    # Fall back to shell script dispatch
-    "$MYINSTALL_SCRIPT_LOCATION" "$@";
+    printf 'bashc: the Rust binary is required for supported installs; run %s/init.sh or build %s/rust\n' "$bashC" "$bashC" >&2
+    printf 'bashc: installScripts are compatibility launchers and require the Rust binary\n' >&2
+    return 1
 }
 
 if [[ $PROFILE_SHELL == "bash" ]]; then

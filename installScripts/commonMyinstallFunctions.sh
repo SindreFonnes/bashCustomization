@@ -9,34 +9,34 @@ script_check_args_exist () {
 }
 
 script_allready_installed () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "${@} is allready installed";
+    echo "$* is allready installed";
     echo "exiting...";
 
     return 0;
 }
 
 script_does_not_support_os () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "This script does not currently support installing ${@} for your os...";
-    echo "If you want to install ${@}, either do it manualy or update this script";
+    echo "This script does not currently support installing $* for your os...";
+    echo "If you want to install $*, either do it manualy or update this script";
     echo "exiting...";
 
     return 0;
 }
 
 script_success_message () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    echo "Successfully installed ${@}!";
+    echo "Successfully installed $*!";
 
     return 0;
 }
@@ -48,41 +48,45 @@ script_check_if_allready_installed () {
 
     name=("${@:2}")
 
-    if ! script_check_args_exist ${name[@]}; then
+    if ! script_check_args_exist "${name[@]}"; then
         return 1;
     fi
 
-    if command -v $1 &> /dev/null; then
-        script_allready_installed ${name[@]};
+    if command -v "$1" &> /dev/null; then
+        script_allready_installed "${name[@]}";
         return 1;
     fi
 
     return 0;
 }
 
-# Ensures brew is installed on macOS and returns the brew prefix
+# Ensures brew is installed through the supported Rust installer and returns
+# the active prefix. This works for both macOS and supported Linux hosts.
 # Usage: BREW_PREFIX=$(ensure_brew_installed)
 ensure_brew_installed () {
-    if [[ "$OSTYPE" != *"darwin"* ]]; then
-        echo "ERROR: ensure_brew_installed() should only be called on macOS" >&2
-        return 1;
-    fi
-    
-    local BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
-    
+    local BREW_PREFIX
+    BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
+
     if [[ -z "${BREW_PREFIX}" ]]; then
         echo "Homebrew not found. Installing Homebrew..." >&2
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        
+        if ! command -v bashc >/dev/null 2>&1; then
+            echo "ERROR: bashc is required to install Homebrew safely" >&2
+            return 1
+        fi
+        # Keep stdout reserved for the prefix returned by this function.
+        bashc install brew >&2 || return 1
+
         # Evaluate shellenv to make brew available in current session
         if [[ -x /opt/homebrew/bin/brew ]]; then
             eval "$(/opt/homebrew/bin/brew shellenv)"
         elif [[ -x /usr/local/bin/brew ]]; then
             eval "$(/usr/local/bin/brew shellenv)"
+        elif [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
         fi
-        
+
         BREW_PREFIX="$(/usr/bin/env brew --prefix 2>/dev/null || true)"
-        
+
         if [[ -z "${BREW_PREFIX}" ]]; then
             echo "ERROR: Failed to install or locate Homebrew" >&2
             return 1;
@@ -108,7 +112,7 @@ is_wsl_os () {
         return 1;
     fi
     
-    if [[ $(cat /proc/version | tr '[:upper:]' '[:lower:]') == *"wsl"* ]]; then
+    if [[ $(tr '[:upper:]' '[:lower:]' < /proc/version) == *"wsl"* ]]; then
         return 0;
     fi
 
@@ -141,6 +145,7 @@ is_ubuntu_debian () {
         return 1;
     fi
     
+    # shellcheck disable=SC1091
     . /etc/os-release
     if [[ "$ID" == "ubuntu" ]] || [[ "$ID_LIKE" == *"debian"* ]] || [[ "$ID" == "debian" ]]; then
         return 0;
@@ -150,15 +155,17 @@ is_ubuntu_debian () {
 }
 
 run_my_install () {
-    if ! script_check_args_exist ${@}; then
+    if ! script_check_args_exist "$@"; then
         return 1;
     fi
 
-    # Prefer bashc Rust binary when available
     if command -v bashc &> /dev/null; then
         bashc install "$@";
         return $?;
     fi
 
-    "$MYINSTALL_SCRIPT_LOCATION" "$@";
+    local project_root=${bashC:-"$HOME/bashCustomization"}
+    echo "bashc: the Rust binary is required for supported installs; run $project_root/init.sh or build $project_root/rust" >&2
+    echo "bashc: installScripts are compatibility launchers and require the Rust binary" >&2
+    return 1
 }

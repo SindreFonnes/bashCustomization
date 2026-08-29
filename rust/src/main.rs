@@ -1,7 +1,10 @@
 mod common;
+mod configs;
 mod install;
 
 use clap::{Parser, Subcommand};
+
+use configs::Strategy;
 
 #[derive(Parser)]
 #[command(name = "bashc", version, about = "Unified CLI for shell customization")]
@@ -29,10 +32,61 @@ enum Commands {
         #[arg(long)]
         verbose: bool,
     },
+
+    /// Manage symlinked config files (claude, zellij, ghostty, etc.)
+    Configs {
+        #[command(subcommand)]
+        action: ConfigsAction,
+    },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[derive(Subcommand)]
+enum ConfigsAction {
+    /// Create symlinks from repo configs to system locations
+    Link {
+        /// Config group name (e.g. "claude", "zellij"). Links all if omitted.
+        name: Option<String>,
+
+        /// Force a specific conflict resolution strategy (replace, discard, keep)
+        #[arg(long, value_enum)]
+        force: Option<Strategy>,
+
+        /// Separately acknowledge modifications whose resolved parent is outside $HOME
+        #[arg(long)]
+        allow_outside_home: bool,
+    },
+
+    /// Remove symlinks and optionally restore backups
+    Unlink {
+        /// Config group name. Unlinks all if omitted.
+        name: Option<String>,
+
+        /// Skip confirmation prompts (answer yes to all)
+        #[arg(long)]
+        yes: bool,
+
+        /// Separately acknowledge modifications whose resolved parent is outside $HOME
+        #[arg(long)]
+        allow_outside_home: bool,
+    },
+
+    /// Show current state of all managed configs
+    Status {
+        /// Config group name. Shows all if omitted.
+        name: Option<String>,
+    },
+
+    /// Show diffs between repo and local config files
+    Diff {
+        /// Config group name. Diffs all if omitted.
+        name: Option<String>,
+    },
+
+    /// Auto-link safe drift and warn about anything that needs attention. Designed for shell-startup invocation.
+    Check {},
+}
+
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -42,15 +96,11 @@ async fn main() -> anyhow::Result<()> {
             dry_run,
             verbose,
         } => {
+            common::command::set_verbose(verbose);
             let platform = common::platform::Platform::detect()?;
             println!("Detected platform: {}", platform);
 
-            let config = install::InstallConfig {
-                platform,
-                dry_run,
-                verbose,
-                interactive,
-            };
+            let config = install::InstallConfig { platform, dry_run };
 
             if interactive {
                 install::run_interactive(&config)?;
@@ -61,6 +111,48 @@ async fn main() -> anyhow::Result<()> {
                 println!("\nAvailable tools:");
                 for name in install::available_tool_names() {
                     println!("  {name}");
+                }
+            }
+        }
+        Commands::Configs { action } => {
+            let platform = common::platform::Platform::detect()?;
+            let project_root = common::project_root::project_root()?;
+
+            match action {
+                ConfigsAction::Link {
+                    name,
+                    force,
+                    allow_outside_home,
+                } => {
+                    configs::link::run_link(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        force,
+                        allow_outside_home,
+                    )?;
+                }
+                ConfigsAction::Unlink {
+                    name,
+                    yes,
+                    allow_outside_home,
+                } => {
+                    configs::unlink::run_unlink(
+                        &project_root,
+                        &platform,
+                        name.as_deref(),
+                        yes,
+                        allow_outside_home,
+                    )?;
+                }
+                ConfigsAction::Status { name } => {
+                    configs::status::run_status(&project_root, &platform, name.as_deref())?;
+                }
+                ConfigsAction::Diff { name } => {
+                    configs::diff::run_diff(&project_root, &platform, name.as_deref())?;
+                }
+                ConfigsAction::Check {} => {
+                    configs::check::run_check(&project_root, &platform)?;
                 }
             }
         }

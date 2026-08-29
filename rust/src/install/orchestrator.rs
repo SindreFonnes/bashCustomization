@@ -1,9 +1,9 @@
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
 
-use crate::common::platform::Platform;
-use super::{InstallConfig, InstallOutcome, Installer, Tool, ALL_TOOLS, available_tool_names, find_tool};
+use super::{
+    ALL_TOOLS, InstallConfig, InstallOutcome, InstallationState, Installer, Tool,
+    available_tool_names, find_tool,
+};
 
 /// Run a single installer by name.
 pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
@@ -35,8 +35,54 @@ pub fn run_by_name(name: &str, config: &InstallConfig) -> Result<()> {
 
 /// Run a single installer with pre-flight checks.
 fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
-    if tool.is_installed() {
-        return InstallOutcome::Skipped("already installed".to_string());
+    run_installer(tool, config)
+}
+
+fn run_installer(tool: &dyn Installer, config: &InstallConfig) -> InstallOutcome {
+    if !tool.is_applicable(&config.platform) {
+        return InstallOutcome::NotApplicable(format!("not applicable on {}", config.platform));
+    }
+
+    if config.platform.is_nixos() {
+        if config.dry_run {
+            println!(
+                "  Would provide NixOS declarative guidance for {}",
+                tool.name()
+            );
+            return InstallOutcome::Planned;
+        }
+
+        return match crate::common::package_manager::nix_guidance(tool.name()) {
+            Ok(()) => InstallOutcome::Guidance("declarative NixOS configuration".to_string()),
+            Err(e) => InstallOutcome::Failed(format!("{e:#}")),
+        };
+    }
+
+    if config.dry_run {
+        return match tool.install(config) {
+            Ok(()) => InstallOutcome::Planned,
+            Err(e) => InstallOutcome::Failed(format!("{e:#}")),
+        };
+    }
+
+    let state_before = tool.installation_state(&config.platform);
+    match &state_before {
+        InstallationState::Complete => {
+            return InstallOutcome::Skipped("already complete".to_string());
+        }
+        InstallationState::Incomplete(reason) => {
+            println!("\n--- Repairing {} ({reason}) ---", tool.name());
+        }
+        InstallationState::Missing => {}
+    }
+
+    if tool.requires_brew(&config.platform)
+        && !crate::common::package_manager::has_brew()
+        && let Err(error) = crate::common::package_manager::ensure_brew(&config.platform)
+    {
+        return InstallOutcome::Failed(format!(
+            "Homebrew prerequisite could not be satisfied: {error:#}"
+        ));
     }
 
     if tool.needs_sudo(&config.platform)
@@ -49,26 +95,37 @@ fn run_one(tool: &Tool, config: &InstallConfig) -> InstallOutcome {
         ));
     }
 
-    if config.dry_run {
-        println!("Would install {}", tool.name());
-        return InstallOutcome::Skipped("dry-run".to_string());
+    if matches!(state_before, InstallationState::Missing) {
+        println!("\n--- Installing {} ---", tool.name());
     }
-
-    println!("\n--- Installing {} ---", tool.name());
     match tool.install(config) {
-        Ok(()) => InstallOutcome::Installed,
+        Ok(()) => match tool.verify_installation(&config.platform) {
+            Ok(()) => match state_before {
+                InstallationState::Incomplete(reason) => InstallOutcome::Repaired(reason),
+                InstallationState::Missing => InstallOutcome::Installed,
+                InstallationState::Complete => unreachable!("complete tools return before install"),
+            },
+            Err(e) => InstallOutcome::Failed(format!(
+                "installer returned success but verification failed: {e:#}"
+            )),
+        },
         Err(e) => InstallOutcome::Failed(format!("{e:#}")),
     }
 }
 
-/// Run all installers with phased parallel execution.
+/// Run all installers in dependency phases.
 pub fn run_all(config: &InstallConfig) -> Result<()> {
     // Pre-flight: check sudo requirements
     if !config.dry_run {
         let needs_sudo: Vec<&str> = ALL_TOOLS
             .iter()
             .filter(|t| {
-                t.needs_sudo(&config.platform)
+                t.include_in_all(&config.platform)
+                    && !matches!(
+                        t.installation_state(&config.platform),
+                        InstallationState::Complete
+                    )
+                    && t.needs_sudo(&config.platform)
                     && !crate::common::command::is_root()
                     && !crate::common::privilege::has_path_escalator()
             })
@@ -83,63 +140,74 @@ pub fn run_all(config: &InstallConfig) -> Result<()> {
         }
     }
 
-    // Pre-flight: bootstrap doas on Alpine when running as root with no escalator
-    //
-    // On a fresh Alpine install there is no sudo/doas/su, so tools that rely on
-    // privilege escalation would fail later. If we are already root we can
-    // install doas right now (best-effort — if it fails we warn and continue;
-    // tools that need escalation will produce their own clear error messages).
-    if !config.dry_run
-        && crate::common::command::is_root()
-        && !crate::common::privilege::has_path_escalator()
-        && config.platform.is_alpine()
-    {
-        println!("=== Pre-flight: bootstrapping doas on Alpine ===");
-        if let Some(doas_tool) = find_tool("doas") {
-            match doas_tool.install(config) {
-                Ok(()) => println!("doas bootstrapped successfully."),
-                Err(e) => println!(
-                    "Warning: doas bootstrap failed ({e:#}). \
-                    Tools requiring privilege escalation may fail."
-                ),
-            }
-        }
-    }
-
     // Group by phase
-    let phase0: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 0).collect();
-    let phase1: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 1).collect();
-    let phase2: Vec<Tool> = ALL_TOOLS.iter().copied().filter(|t| t.phase() == 2).collect();
+    let phase0: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 0)
+        .collect();
+    let phase1: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 1)
+        .collect();
+    let phase2: Vec<Tool> = ALL_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| t.phase() == 2)
+        .collect();
 
     let mut results: Vec<(String, InstallOutcome)> = Vec::new();
 
-    // Phase 0: base packages (sequential — brew first, then apt base)
+    // Phase 0: native bootstrap prerequisites first, then Homebrew.
     if !phase0.is_empty() {
         println!("=== Phase 0: Base packages ===");
         for tool in &phase0 {
-            let outcome = run_one(tool, config);
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
             results.push((tool.name().to_string(), outcome));
         }
     }
 
-    // Phase 1: parallel tool installation
+    // Phase 1: tools. Keep this sequential: many installers mutate global
+    // package-manager state (apt/brew locks, repo files, /usr/local), so
+    // concurrent installs are not reliable across platforms.
     if !phase1.is_empty() {
-        println!("\n=== Phase 1: Tools (parallel) ===");
-        let phase1_results = run_phase_parallel(&phase1, config);
-        results.extend(phase1_results);
+        println!("\n=== Phase 1: Tools ===");
+        for tool in &phase1 {
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
+            results.push((tool.name().to_string(), outcome));
+        }
     }
 
     // Phase 2: JS tools (sequential — nvm first, then rest)
     if !phase2.is_empty() {
         println!("\n=== Phase 2: JavaScript tools ===");
         for tool in &phase2 {
-            let outcome = run_one(tool, config);
+            let outcome = if tool.include_in_all(&config.platform) {
+                run_one(tool, config)
+            } else {
+                InstallOutcome::NotApplicable(
+                    "not required by install all on this platform".to_string(),
+                )
+            };
             results.push((tool.name().to_string(), outcome));
         }
     }
 
     print_summary(&results);
-    Ok(())
+    bail_if_failed(&results)
 }
 
 /// Interactive mode: show multi-select menu.
@@ -163,110 +231,7 @@ pub fn run_interactive(config: &InstallConfig) -> Result<()> {
     }
 
     print_summary(&results);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Parallel execution
-// ---------------------------------------------------------------------------
-
-/// Snapshot of InstallConfig that can be shared across threads.
-struct ConfigSnapshot {
-    platform: Platform,
-    dry_run: bool,
-    verbose: bool,
-    interactive: bool,
-}
-
-/// Run a set of tools in parallel using tokio::task::spawn_blocking.
-fn run_phase_parallel(
-    tools: &[Tool],
-    config: &InstallConfig,
-) -> Vec<(String, InstallOutcome)> {
-    // For dry-run, just run sequentially
-    if config.dry_run {
-        return tools
-            .iter()
-            .map(|t| {
-                let outcome = run_one(t, config);
-                (t.name().to_string(), outcome)
-            })
-            .collect();
-    }
-
-    let rt = tokio::runtime::Handle::current();
-    let shared_config = Arc::new(ConfigSnapshot {
-        platform: config.platform.clone(),
-        dry_run: config.dry_run,
-        verbose: config.verbose,
-        interactive: config.interactive,
-    });
-
-    let mut handles = Vec::new();
-
-    for &tool in tools {
-        let name = tool.name().to_string();
-
-        // Pre-flight checks before spawning
-        if tool.is_installed() {
-            handles.push((
-                name,
-                None,
-                Some(InstallOutcome::Skipped("already installed".to_string())),
-            ));
-            continue;
-        }
-
-        if tool.needs_sudo(&shared_config.platform)
-            && !crate::common::command::is_root()
-            && !crate::common::privilege::has_path_escalator()
-        {
-            handles.push((
-                name.clone(),
-                None,
-                Some(InstallOutcome::Failed(format!(
-                    "requires root privileges — no sudo/doas/su found to install {name}"
-                ))),
-            ));
-            continue;
-        }
-
-        let task_config = Arc::clone(&shared_config);
-        // Tool is Copy — just move the value into the closure
-        let handle = rt.spawn_blocking(move || {
-            println!("\n--- Installing {} ---", tool.name());
-            let install_config = InstallConfig {
-                platform: task_config.platform.clone(),
-                dry_run: task_config.dry_run,
-                verbose: task_config.verbose,
-                interactive: task_config.interactive,
-            };
-            match tool.install(&install_config) {
-                Ok(()) => InstallOutcome::Installed,
-                Err(e) => InstallOutcome::Failed(format!("{e:#}")),
-            }
-        });
-
-        handles.push((name, Some(handle), None));
-    }
-
-    // Collect results — use block_in_place to avoid panicking when
-    // block_on is called from within the tokio runtime context.
-    let mut results = Vec::new();
-    tokio::task::block_in_place(|| {
-        for (name, handle, immediate) in handles {
-            if let Some(outcome) = immediate {
-                results.push((name, outcome));
-            } else if let Some(handle) = handle {
-                let outcome = rt.block_on(handle).unwrap_or_else(|e| {
-                    InstallOutcome::Failed(format!("task panicked: {e}"))
-                });
-                results.push((name, outcome));
-            }
-        }
-    });
-
-    results
+    bail_if_failed(&results)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +241,13 @@ fn run_phase_parallel(
 fn print_single_outcome(name: &str, outcome: &InstallOutcome) {
     match outcome {
         InstallOutcome::Installed => println!("✓ {name} installed successfully"),
+        InstallOutcome::Repaired(reason) => println!("✓ {name} repaired ({reason})"),
         InstallOutcome::Skipped(reason) => println!("- {name} skipped ({reason})"),
+        InstallOutcome::NotApplicable(reason) => {
+            println!("- {name} not applicable ({reason})")
+        }
+        InstallOutcome::Guidance(reason) => println!("- {name} guidance provided ({reason})"),
+        InstallOutcome::Planned => println!("- {name} planned (dry-run)"),
         InstallOutcome::Failed(reason) => println!("✗ {name} failed: {reason}"),
     }
 }
@@ -290,16 +261,53 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::Skipped(_)))
         .collect();
+    let repaired: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Repaired(_)))
+        .collect();
+    let not_applicable: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::NotApplicable(_)))
+        .collect();
+    let planned: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Planned))
+        .collect();
+    let guidance: Vec<_> = results
+        .iter()
+        .filter(|(_, o)| matches!(o, InstallOutcome::Guidance(_)))
+        .collect();
     let failed: Vec<_> = results
         .iter()
         .filter(|(_, o)| matches!(o, InstallOutcome::Failed(_)))
         .collect();
 
-    let total = results.len();
-    let success = installed.len();
+    let applicable = installed.len()
+        + repaired.len()
+        + skipped.len()
+        + guidance.len()
+        + planned.len()
+        + failed.len();
+    let completed = installed.len() + repaired.len() + skipped.len() + guidance.len();
 
     println!("\n{}", "=".repeat(50));
-    println!("Installed {success}/{total} tools successfully.\n");
+    if !planned.is_empty() {
+        println!(
+            "Planned {}/{} applicable tools.\n",
+            planned.len(),
+            applicable
+        );
+    } else {
+        println!("Completed {completed}/{applicable} applicable tools successfully.\n");
+    }
+
+    if !installed.is_empty() {
+        println!("Installed:");
+        for (name, _) in &installed {
+            println!("  {name}");
+        }
+        println!();
+    }
 
     if !skipped.is_empty() {
         println!("Skipped:");
@@ -307,6 +315,44 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
             if let InstallOutcome::Skipped(reason) = outcome {
                 println!("  {name} — {reason}");
             }
+        }
+        println!();
+    }
+
+    if !repaired.is_empty() {
+        println!("Repaired:");
+        for (name, outcome) in &repaired {
+            if let InstallOutcome::Repaired(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !not_applicable.is_empty() {
+        println!("Not applicable:");
+        for (name, outcome) in &not_applicable {
+            if let InstallOutcome::NotApplicable(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !guidance.is_empty() {
+        println!("Guidance provided:");
+        for (name, outcome) in &guidance {
+            if let InstallOutcome::Guidance(reason) = outcome {
+                println!("  {name} — {reason}");
+            }
+        }
+        println!();
+    }
+
+    if !planned.is_empty() {
+        println!("Planned:");
+        for (name, _) in &planned {
+            println!("  {name}");
         }
         println!();
     }
@@ -322,10 +368,70 @@ fn print_summary(results: &[(String, InstallOutcome)]) {
     }
 }
 
+fn bail_if_failed(results: &[(String, InstallOutcome)]) -> Result<()> {
+    let failed: Vec<&str> = results
+        .iter()
+        .filter_map(|(name, outcome)| {
+            matches!(outcome, InstallOutcome::Failed(_)).then_some(name.as_str())
+        })
+        .collect();
+
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        bail!("{} tool(s) failed: {}", failed.len(), failed.join(", "))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::platform::{Arch, Distro, Os, Platform};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FakeInstaller {
+        state: Mutex<InstallationState>,
+        state_after_install: InstallationState,
+        install_calls: AtomicUsize,
+    }
+
+    impl FakeInstaller {
+        fn new(state: InstallationState, state_after_install: InstallationState) -> Self {
+            Self {
+                state: Mutex::new(state),
+                state_after_install,
+                install_calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Installer for FakeInstaller {
+        fn name(&self) -> &str {
+            "fake"
+        }
+
+        fn needs_sudo(&self, _platform: &Platform) -> bool {
+            false
+        }
+
+        fn is_installed(&self) -> bool {
+            matches!(
+                *self.state.lock().expect("state lock poisoned"),
+                InstallationState::Complete
+            )
+        }
+
+        fn installation_state(&self, _platform: &Platform) -> InstallationState {
+            self.state.lock().expect("state lock poisoned").clone()
+        }
+
+        fn install(&self, _config: &InstallConfig) -> Result<()> {
+            self.install_calls.fetch_add(1, Ordering::SeqCst);
+            *self.state.lock().expect("state lock poisoned") = self.state_after_install.clone();
+            Ok(())
+        }
+    }
 
     fn test_config(dry_run: bool) -> InstallConfig {
         InstallConfig {
@@ -334,8 +440,6 @@ mod tests {
                 arch: Arch::X86_64,
             },
             dry_run,
-            verbose: false,
-            interactive: false,
         }
     }
 
@@ -360,35 +464,186 @@ mod tests {
     }
 
     #[test]
-    fn run_one_skips_installed_tool() {
-        // Go is likely not installed in the test env, but if it is, it should skip
+    fn complete_installer_is_skipped_without_running() {
         let config = test_config(false);
-        for &tool in ALL_TOOLS {
-            if tool.is_installed() {
-                let outcome = run_one(&tool, &config);
-                assert!(
-                    matches!(outcome, InstallOutcome::Skipped(_)),
-                    "installed tool {} should be skipped",
-                    tool.name()
-                );
-                break;
-            }
-        }
+        let installer =
+            FakeInstaller::new(InstallationState::Complete, InstallationState::Complete);
+
+        let outcome = run_installer(&installer, &config);
+
+        assert!(matches!(outcome, InstallOutcome::Skipped(_)));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn run_one_dry_run_skips() {
+    fn incomplete_installer_is_repaired_and_reported_separately() {
+        let config = test_config(false);
+        let installer = FakeInstaller::new(
+            InstallationState::Incomplete("missing companion".to_string()),
+            InstallationState::Complete,
+        );
+
+        let outcome = run_installer(&installer, &config);
+
+        assert!(matches!(outcome, InstallOutcome::Repaired(_)));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn successful_command_with_missing_postcondition_is_failed() {
+        let config = test_config(false);
+        let installer = FakeInstaller::new(InstallationState::Missing, InstallationState::Missing);
+
+        let outcome = run_installer(&installer, &config);
+
+        let InstallOutcome::Failed(reason) = outcome else {
+            panic!("missing postcondition must produce a failed outcome");
+        };
+        assert!(reason.contains("verification failed"));
+        assert_eq!(installer.install_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn run_one_dry_run_plans() {
         let config = test_config(true);
         let tool = find_tool("ripgrep").unwrap();
         let outcome = run_one(&tool, &config);
-        match outcome {
-            InstallOutcome::Skipped(reason) => {
-                assert!(
-                    reason.contains("dry-run") || reason.contains("already installed"),
-                    "unexpected skip reason: {reason}"
-                );
-            }
-            _ => panic!("expected Skipped outcome in dry-run mode"),
+        assert!(matches!(outcome, InstallOutcome::Planned));
+    }
+
+    #[test]
+    fn doas_is_not_applicable_on_macos() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::MacOs,
+                arch: Arch::Aarch64,
+            },
+            dry_run: true,
+        };
+        let tool = find_tool("doas").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::NotApplicable(_)
+        ));
+    }
+
+    #[test]
+    fn brew_is_not_applicable_on_alpine() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::Linux(Distro::Alpine),
+                arch: Arch::X86_64,
+            },
+            dry_run: true,
+        };
+        let tool = find_tool("brew").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::NotApplicable(_)
+        ));
+    }
+
+    #[test]
+    fn nixos_install_returns_guidance_outcome() {
+        let config = InstallConfig {
+            platform: Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
+            dry_run: false,
+        };
+        let tool = find_tool("docker").unwrap();
+
+        assert!(matches!(
+            run_one(&tool, &config),
+            InstallOutcome::Guidance(_)
+        ));
+    }
+
+    #[test]
+    fn bail_if_failed_returns_error_for_failed_outcomes() {
+        let results = vec![
+            ("ripgrep".to_string(), InstallOutcome::Installed),
+            (
+                "docker".to_string(),
+                InstallOutcome::Failed("apt lock failed".to_string()),
+            ),
+        ];
+
+        let err = bail_if_failed(&results).expect_err("failed outcomes should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("docker"),
+            "error should name failed tool: {msg}"
+        );
+    }
+
+    #[test]
+    fn not_applicable_and_guidance_outcomes_do_not_fail_an_all_run() {
+        let results = vec![
+            (
+                "doas".to_string(),
+                InstallOutcome::NotApplicable("not needed".to_string()),
+            ),
+            (
+                "docker".to_string(),
+                InstallOutcome::Guidance("declarative configuration".to_string()),
+            ),
+            ("ripgrep".to_string(), InstallOutcome::Installed),
+        ];
+
+        assert!(bail_if_failed(&results).is_ok());
+    }
+
+    #[test]
+    fn dry_run_install_all_succeeds_across_modeled_platforms() {
+        let platforms = [
+            Platform {
+                os: Os::MacOs,
+                arch: Arch::Aarch64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Debian),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Ubuntu),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Wsl(Distro::Ubuntu),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Fedora),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Arch),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::Alpine),
+                arch: Arch::X86_64,
+            },
+            Platform {
+                os: Os::Linux(Distro::NixOs),
+                arch: Arch::X86_64,
+            },
+        ];
+
+        for platform in platforms {
+            let display = platform.to_string();
+            let config = InstallConfig {
+                platform,
+                dry_run: true,
+            };
+            assert!(
+                run_all(&config).is_ok(),
+                "dry-run install all should succeed for {display}"
+            );
         }
     }
 }

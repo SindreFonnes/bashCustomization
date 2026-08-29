@@ -127,11 +127,11 @@ diff-tag-full() {
             continue
         fi
         
-        if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
-            key="${BASH_REMATCH[1]}"
-            if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
-                key=$match[1]
-            fi
+		if [[ $line =~ $JIRA_CASES_PATTERN ]]; then
+			key="${BASH_REMATCH[1]}"
+			if [[ $key == "" ]]; then # in zsh, the match is in $match[1]
+				key="${match[1]:-}"
+			fi
             
             local item_exists=false
             for jira_case in "${jira_cases_in_commits[@]}"; do
@@ -288,21 +288,24 @@ get-latest-workflow-run-job-log() {
 get-latest-terraform-plan() {  
     echo -e "\nPrinting terraform plan for tag ${GREEN}$(get-latest-workflow-run-job-tag ${1})${NC}\n"
     LATEST_TERRAFORM_LOG=$(get-latest-workflow-run-job-log ${1})
-    
-    LATEST_TERRAFORM_PLAN=$(\
-        echo "$LATEST_TERRAFORM_LOG" |\
-        awk '/Terraform will perform the following actions/,/Plan:/{print; if (/Plan:/) nextfile}' | # Find the first occurence of the printed terraform plan \
-        awk -F'\t' '{print $3}' | # Remove extra github actions metadata in the beginning \
-        sed 's/^[^ ]* //'         # Remove timestamp` \
+
+    # Find the first printed Terraform plan, then remove GitHub Actions
+    # metadata and the timestamp prefix.
+    LATEST_TERRAFORM_PLAN=$(
+        echo "$LATEST_TERRAFORM_LOG" |
+        awk '/Terraform will perform the following actions/,/Plan:/{print; if (/Plan:/) nextfile}' |
+        awk -F'\t' '{print $3}' |
+        sed 's/^[^ ]* //'
     )
 
     if [[ $LATEST_TERRAFORM_PLAN ]]; then
         echo "$LATEST_TERRAFORM_PLAN"
     else
-        echo "$LATEST_TERRAFORM_LOG" |\
-        awk '/No changes/{print; if (/No changes/) nextfile}' | # Find the first occurence of No changes \
-        awk -F'\t' '{print $3}' | # Remove extra github actions metadata in the beginning \
-        sed 's/^[^ ]* //'         # Remove timestamp` \
+        # Print the first no-change result with the same metadata removed.
+        echo "$LATEST_TERRAFORM_LOG" |
+        awk '/No changes/{print; if (/No changes/) nextfile}' |
+        awk -F'\t' '{print $3}' |
+        sed 's/^[^ ]* //'
     fi
 }
 

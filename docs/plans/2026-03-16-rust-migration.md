@@ -1,5 +1,12 @@
 # Rust Migration Plan for bashCustomization
 
+> **Historical planning snapshot.** As of 2026-07-13, this plan is not the
+> current status tracker and its phase/checklist claims must not be read as
+> completed user outcomes. The project is a hybrid shell/Rust framework; the
+> supported baseline, verified platforms, remaining clean-host work, and future
+> migration scope are tracked in `docs/support.md` and
+> `docs/plans/2026-07-13-bashc-rust-port-remediation.md`.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate the shell customization framework to Rust binaries distributed as precompiled releases, so a fresh machine can be fully set up by cloning the repo and running a single init command.

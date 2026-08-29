@@ -111,9 +111,9 @@ git_add_commit_push_tag () {
 	local commitMessage="";
 
 	if [[ ${production} == "true" || ${stage} == "true" ]]; then
-		commitMessage="${@:3}";
+		commitMessage="${*:3}";
 	else
-		commitMessage="${@:2}";
+		commitMessage="${*:2}";
 	fi
 
 	if [[ -f "./package.json" ]]; then
@@ -132,8 +132,8 @@ git_add_commit_push_tag () {
 		git_tag+="-stage";
 	fi
 
-	git_add_commit_push $commitMessage &&
-	git_tag_commit $git_tag;
+	git_add_commit_push "$commitMessage" &&
+	git_tag_commit "$git_tag";
 }
 
-git_add_commit_push_tag ${@}
+git_add_commit_push_tag "$@"

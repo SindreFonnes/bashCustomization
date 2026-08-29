@@ -13,7 +13,7 @@ find_aliases_and_functions () {
 
 	local full_git_extention_code=();
 	
-	for entry in ${all_git_extention_files[@]}; do
+	for entry in "${all_git_extention_files[@]}"; do
 		if [[ $entry == *"gitShow"* || $entry == *"gitAddCommitPushTag"* ]]; then
 			continue;
 		fi

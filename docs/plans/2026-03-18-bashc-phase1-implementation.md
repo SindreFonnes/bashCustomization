@@ -1,5 +1,11 @@
 # `bashc` Phase 1 Implementation Plan
 
+> **Historical implementation plan.** The crate, installer registry, bootstrap,
+> and release workflows described here exist, but “Phase 1” is not considered
+> complete until its supported fresh-machine outcomes pass the current gates.
+> This document's unchecked steps are preserved as implementation history, not
+> an active backlog. See `docs/support.md` and the 2026-07-13 remediation plan.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the `bashc` Rust binary with all install subcommands, CI/CD for precompiled releases, and a bootstrap init script.

@@ -1,7 +1,13 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}, privilege};
-use crate::install::InstallConfig;
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+    privilege,
+};
+use crate::install::{InstallConfig, InstallationState};
+
+const DOCKER_APT_KEY_FINGERPRINTS: &[&str] = &["9DC858229FC7DD38854AE2D88D81803C0EBFCD88"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct DockerInstaller;
@@ -18,7 +24,29 @@ impl crate::install::Installer for DockerInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("docker")
+        command::exists("docker") || std::path::Path::new("/Applications/Docker.app").is_dir()
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_nixos()
+    }
+
+    fn installation_state(&self, platform: &Platform) -> InstallationState {
+        if platform.is_mac() {
+            return if self.is_installed() {
+                InstallationState::Complete
+            } else {
+                InstallationState::Missing
+            };
+        }
+
+        if !command::exists("docker") {
+            InstallationState::Missing
+        } else if command::run("docker", &["compose", "version"]).is_ok() {
+            InstallationState::Complete
+        } else {
+            InstallationState::Incomplete("docker compose plugin is missing".to_string())
+        }
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
@@ -55,13 +83,18 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
     }
 
     // Docker uses separate repo paths for ubuntu vs debian
-    let docker_distro = if platform.is_ubuntu() { "ubuntu" } else { "debian" };
+    let docker_distro = if platform.is_ubuntu() {
+        "ubuntu"
+    } else {
+        "debian"
+    };
 
     println!("Adding Docker GPG key...");
     let gpg_url = format!("https://download.docker.com/linux/{docker_distro}/gpg");
     package_manager::apt_add_gpg_key(
         &gpg_url,
         "/etc/apt/keyrings/docker.gpg",
+        DOCKER_APT_KEY_FINGERPRINTS,
     )?;
 
     let dpkg_arch = platform.go_arch();
@@ -78,26 +111,35 @@ fn install_docker_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding Docker apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/docker.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/docker.list")?;
 
     println!("Installing Docker Engine...");
     let packages = "docker-ce docker-ce-cli containerd.io docker-compose-plugin";
-    privilege::run_privileged("apt-get", &["install", "-y",
-        "docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"])?;
+    privilege::run_privileged(
+        "apt-get",
+        &[
+            "install",
+            "-y",
+            "docker-ce",
+            "docker-ce-cli",
+            "containerd.io",
+            "docker-compose-plugin",
+        ],
+    )?;
 
     // WSL-specific: create docker group and add user
     if platform.is_wsl() {
         println!("Setting up Docker group for WSL...");
-        // Create docker group if it doesn't exist
-        let _ = command::run("bash", &["-c", "getent group docker || groupadd docker"]);
-        // Add current user to docker group
-        if let Ok(user) = std::env::var("USER") {
-            let _ = privilege::run_privileged("usermod", &["-aG", "docker", &user]);
-            println!("Added {user} to docker group. Log out and back in for changes to take effect.");
+        if command::run("getent", &["group", "docker"]).is_err() {
+            privilege::run_privileged("groupadd", &["docker"])?;
         }
+        let user = std::env::var("USER")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .or_else(|| command::run("id", &["-un"]).ok())
+            .ok_or_else(|| anyhow::anyhow!("could not determine current user for docker group"))?;
+        privilege::run_privileged("usermod", &["-aG", "docker", &user])?;
+        println!("Added {user} to docker group. Log out and back in for changes to take effect.");
     }
 
     println!("Docker Engine installed ({packages})");
@@ -115,16 +157,28 @@ mod tests {
     }
 
     fn debian() -> Platform {
-        Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 }
+        Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        }
     }
     fn ubuntu() -> Platform {
-        Platform { os: Os::Linux(Distro::Ubuntu), arch: Arch::X86_64 }
+        Platform {
+            os: Os::Linux(Distro::Ubuntu),
+            arch: Arch::X86_64,
+        }
     }
     fn nixos() -> Platform {
-        Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 }
+        Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        }
     }
     fn mac() -> Platform {
-        Platform { os: Os::MacOs, arch: Arch::Aarch64 }
+        Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        }
     }
 
     #[test]
@@ -150,15 +204,27 @@ mod tests {
     #[test]
     fn parse_os_release_field_ubuntu() {
         let content = "NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"22.04\"\nVERSION_CODENAME=jammy\n";
-        assert_eq!(parse_os_release_field(content, "ID="), Some("ubuntu".into()));
-        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME="), Some("jammy".into()));
+        assert_eq!(
+            parse_os_release_field(content, "ID="),
+            Some("ubuntu".into())
+        );
+        assert_eq!(
+            parse_os_release_field(content, "VERSION_CODENAME="),
+            Some("jammy".into())
+        );
     }
 
     #[test]
     fn parse_os_release_field_debian() {
         let content = "ID=debian\nVERSION_CODENAME=bookworm\n";
-        assert_eq!(parse_os_release_field(content, "ID="), Some("debian".into()));
-        assert_eq!(parse_os_release_field(content, "VERSION_CODENAME="), Some("bookworm".into()));
+        assert_eq!(
+            parse_os_release_field(content, "ID="),
+            Some("debian".into())
+        );
+        assert_eq!(
+            parse_os_release_field(content, "VERSION_CODENAME="),
+            Some("bookworm".into())
+        );
     }
 
     #[test]
@@ -170,6 +236,9 @@ mod tests {
     #[test]
     fn parse_os_release_field_quoted() {
         let content = "ID=\"ubuntu\"\n";
-        assert_eq!(parse_os_release_field(content, "ID="), Some("ubuntu".into()));
+        assert_eq!(
+            parse_os_release_field(content, "ID="),
+            Some("ubuntu".into())
+        );
     }
 }

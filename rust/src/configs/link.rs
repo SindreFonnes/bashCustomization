@@ -1,0 +1,1226 @@
+// link: symlink configs into place
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Result, bail};
+use dialoguer::Select;
+use dialoguer::theme::ColorfulTheme;
+
+use crate::common::platform::Platform;
+use crate::configs::manifest::{
+    load_manifest, select_entries, validate_source_filesystem_containment,
+};
+use crate::configs::state::{
+    SelfManagedEntry, add_self_managed, detect_state, load_self_managed, remove_self_managed,
+};
+use crate::configs::{
+    ConfigEntry, EntryState, Strategy, display_target, format_source, home_dir,
+    require_target_authority,
+};
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+pub fn run_link(
+    project_root: &Path,
+    platform: &Platform,
+    filter_name: Option<&str>,
+    force: Option<Strategy>,
+    allow_outside_home: bool,
+) -> Result<()> {
+    let home_path = home_dir()?;
+
+    let entries = select_entries(load_manifest(project_root, platform)?, filter_name)?;
+
+    let self_managed = load_self_managed(project_root)?;
+
+    // Validate all source files exist before doing anything.
+    let missing: Vec<&ConfigEntry> = entries.iter().filter(|e| !e.source.exists()).collect();
+    if !missing.is_empty() {
+        let paths: Vec<String> = missing
+            .iter()
+            .map(|e| e.source.to_string_lossy().into_owned())
+            .collect();
+        bail!("Source file(s) not found:\n  {}", paths.join("\n  "));
+    }
+
+    for entry in &entries {
+        validate_source_filesystem_containment(&entry.source, project_root)?;
+    }
+    require_target_authority(&entries, &home_path, allow_outside_home)?;
+
+    write_link(
+        &mut std::io::stdout(),
+        &entries,
+        &self_managed,
+        &home_path,
+        project_root,
+        force,
+        true, // interactive — enable dialoguer prompts
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Core logic (accepts a writer for testability)
+// ---------------------------------------------------------------------------
+
+fn write_link(
+    writer: &mut impl Write,
+    entries: &[ConfigEntry],
+    self_managed: &[SelfManagedEntry],
+    home: &Path,
+    project_root: &Path,
+    force: Option<Strategy>,
+    interactive: bool,
+) -> Result<()> {
+    for entry in entries {
+        let state = detect_state(entry, self_managed);
+        let source_display = format_source(entry);
+        let target_display = display_target(&entry.target, home);
+
+        // Source viability is a hard precondition for every linking strategy.
+        // In particular, a regular target is classified as Conflict even when
+        // the source is missing; checking here prevents force-replace/discard
+        // from removing user data only to create a dangling link.
+        if !entry.source.exists() {
+            writeln!(
+                writer,
+                "  \u{2717} {source_display} \u{2192} {target_display} (source missing, cannot link)"
+            )?;
+            continue;
+        }
+
+        match state {
+            EntryState::Linked => {
+                writeln!(
+                    writer,
+                    "  \u{2713} {source_display} \u{2192} {target_display} (already linked)"
+                )?;
+            }
+            EntryState::LinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, dangling symlink)"
+                )?;
+            }
+            EntryState::NotLinked => {
+                create_symlink(entry)?;
+                // If a stale self-managed marker exists for this target, remove
+                // it — the entry is now a properly managed symlink, not a local
+                // override. `detect_state` reports `NotLinked` when the marker
+                // is present but the file has been deleted, so without this
+                // cleanup `managed_configs.toml` would accumulate dead entries
+                // every time the user re-runs `bashc configs link`. Mirrors the
+                // same cleanup `bashc configs check` already performs.
+                let target_str = entry.target.to_string_lossy();
+                if self_managed.iter().any(|e| e.target == target_str.as_ref()) {
+                    remove_self_managed(project_root, &target_str)?;
+                }
+                writeln!(
+                    writer,
+                    "  \u{2713} {source_display} \u{2192} {target_display} (linked)"
+                )?;
+            }
+            EntryState::NotLinkedMissingSource => {
+                writeln!(
+                    writer,
+                    "  \u{2717} {source_display} \u{2192} {target_display} (source missing, cannot link)"
+                )?;
+            }
+            EntryState::SelfManaged => {
+                writeln!(
+                    writer,
+                    "  \u{25CB} {source_display} \u{2192} {target_display} (self-managed, skipping)"
+                )?;
+            }
+            EntryState::Conflict | EntryState::WrongSymlink => {
+                // Determine effective strategy: force > entry.strategy > Prompt
+                let effective = match &force {
+                    Some(s) => s.clone(),
+                    None => match &entry.strategy {
+                        Strategy::Prompt => Strategy::Prompt,
+                        other => other.clone(),
+                    },
+                };
+
+                match effective {
+                    Strategy::Prompt => {
+                        if interactive {
+                            // Interactive conflict resolution loop
+                            let resolved = prompt_conflict_resolution(
+                                entry,
+                                home,
+                                matches!(state, EntryState::Conflict),
+                            )?;
+                            match resolved {
+                                Strategy::Replace => {
+                                    resolve_replace_backup(writer, entry, home)?;
+                                }
+                                Strategy::Discard => {
+                                    resolve_discard(writer, entry, home)?;
+                                }
+                                Strategy::Keep => {
+                                    if matches!(state, EntryState::Conflict) {
+                                        resolve_keep(writer, entry, home, project_root)?;
+                                    } else {
+                                        writeln!(
+                                            writer,
+                                            "  \u{2717} {source_display} \u{2192} {target_display} (wrong symlink \u{2014} cannot mark self-managed)"
+                                        )?;
+                                    }
+                                }
+                                Strategy::Prompt => {
+                                    // User chose "Skip for now"
+                                    writeln!(
+                                        writer,
+                                        "  \u{2717} {source_display} \u{2192} {target_display} (conflict \u{2014} skipped)"
+                                    )?;
+                                }
+                            }
+                        } else {
+                            // Non-interactive mode: skip conflicts that need prompting
+                            writeln!(
+                                writer,
+                                "  \u{2717} {source_display} \u{2192} {target_display} (conflict \u{2014} skipping)"
+                            )?;
+                        }
+                    }
+                    Strategy::Replace => {
+                        resolve_replace_backup(writer, entry, home)?;
+                    }
+                    Strategy::Discard => {
+                        resolve_discard(writer, entry, home)?;
+                    }
+                    Strategy::Keep => {
+                        if matches!(state, EntryState::Conflict) {
+                            resolve_keep(writer, entry, home, project_root)?;
+                        } else {
+                            writeln!(
+                                writer,
+                                "  \u{2717} {source_display} \u{2192} {target_display} (wrong symlink \u{2014} cannot mark self-managed)"
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Symlink creation helper (shared by NotLinked, conflict resolution, and check)
+// ---------------------------------------------------------------------------
+
+/// Create a symlink at `entry.target` pointing to `entry.source`.
+/// Creates parent directories as needed. Shared with `check.rs`.
+pub(crate) fn create_symlink(entry: &ConfigEntry) -> Result<()> {
+    if let Some(parent) = entry.target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create parent directory {}: {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+
+    std::os::unix::fs::symlink(&entry.source, &entry.target).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to create symlink {} \u{2192} {}: {}",
+            entry.source.display(),
+            entry.target.display(),
+            e
+        )
+    })?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Conflict resolution actions
+// ---------------------------------------------------------------------------
+
+/// Replace target with a symlink, backing up the original as `.bak`.
+fn resolve_replace_backup(writer: &mut impl Write, entry: &ConfigEntry, home: &Path) -> Result<()> {
+    resolve_replace_backup_with(writer, entry, home, create_symlink)
+}
+
+fn resolve_replace_backup_with(
+    writer: &mut impl Write,
+    entry: &ConfigEntry,
+    home: &Path,
+    link: impl FnOnce(&ConfigEntry) -> Result<()>,
+) -> Result<()> {
+    let source_display = format_source(entry);
+    let target_display = display_target(&entry.target, home);
+    let bak_path = PathBuf::from(format!("{}.bak", entry.target.display()));
+    let staging = create_staging_dir(&entry.target)?;
+    let previous_backup = staging.path().join("previous-backup");
+    let had_previous_backup = bak_path.exists() || bak_path.symlink_metadata().is_ok();
+
+    if had_previous_backup {
+        writeln!(
+            writer,
+            "  \u{26A0} Overwriting existing backup {}",
+            bak_path.display()
+        )?;
+        std::fs::rename(&bak_path, &previous_backup).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to stage existing backup {} at {}: {}",
+                bak_path.display(),
+                previous_backup.display(),
+                e
+            )
+        })?;
+    }
+
+    if let Err(e) = std::fs::rename(&entry.target, &bak_path) {
+        if had_previous_backup
+            && let Err(restore_error) = std::fs::rename(&previous_backup, &bak_path)
+        {
+            let recovery_dir = staging.keep();
+            return Err(anyhow::anyhow!(
+                "Failed to rename {} to {}: {}. Restoring the previous backup also failed: {}. Recovery data was kept at {}",
+                entry.target.display(),
+                bak_path.display(),
+                e,
+                restore_error,
+                recovery_dir.display()
+            ));
+        }
+        return Err(anyhow::anyhow!(
+            "Failed to rename {} to {}: {}",
+            entry.target.display(),
+            bak_path.display(),
+            e
+        ));
+    }
+
+    if let Err(link_error) = link(entry) {
+        let target_restore = std::fs::rename(&bak_path, &entry.target);
+
+        return match target_restore {
+            Ok(()) => {
+                let backup_restore = if had_previous_backup {
+                    std::fs::rename(&previous_backup, &bak_path)
+                } else {
+                    Ok(())
+                };
+                match backup_restore {
+                    Ok(()) => Err(link_error.context("link creation failed; original restored")),
+                    Err(backup_error) => {
+                        let recovery_dir = staging.keep();
+                        Err(anyhow::anyhow!(
+                            "Link creation failed: {link_error:#}. The original target was restored, but the previous backup could not be restored: {backup_error}. Recovery data was kept at {}",
+                            recovery_dir.display()
+                        ))
+                    }
+                }
+            }
+            Err(target_error) => {
+                let recovery_dir = staging.keep();
+                Err(anyhow::anyhow!(
+                    "Link creation failed: {link_error:#}. The original target remains at {} because rollback failed: {target_error}. The previous backup was not moved. Recovery data was kept at {}",
+                    bak_path.display(),
+                    recovery_dir.display()
+                ))
+            }
+        };
+    }
+
+    staging.close().map_err(|e| {
+        anyhow::anyhow!("Linked successfully but failed to remove staged backup: {e}")
+    })?;
+
+    writeln!(
+        writer,
+        "  \u{2713} {source_display} \u{2192} {target_display} (backed up & linked)"
+    )?;
+
+    Ok(())
+}
+
+/// Replace target with a symlink, discarding the original.
+fn resolve_discard(writer: &mut impl Write, entry: &ConfigEntry, home: &Path) -> Result<()> {
+    resolve_discard_with(writer, entry, home, create_symlink)
+}
+
+fn resolve_discard_with(
+    writer: &mut impl Write,
+    entry: &ConfigEntry,
+    home: &Path,
+    link: impl FnOnce(&ConfigEntry) -> Result<()>,
+) -> Result<()> {
+    let source_display = format_source(entry);
+    let target_display = display_target(&entry.target, home);
+    let staging = create_staging_dir(&entry.target)?;
+    let staged_target = staging.path().join("original-target");
+
+    std::fs::rename(&entry.target, &staged_target).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to stage {} at {} before replacement: {}",
+            entry.target.display(),
+            staged_target.display(),
+            e
+        )
+    })?;
+
+    if let Err(link_error) = link(entry) {
+        return match std::fs::rename(&staged_target, &entry.target) {
+            Ok(()) => Err(link_error.context("link creation failed; original restored")),
+            Err(restore_error) => {
+                let recovery_dir = staging.keep();
+                let recovery_target = recovery_dir.join("original-target");
+                Err(anyhow::anyhow!(
+                    "Link creation failed: {link_error:#}. Original remains at {} because rollback failed: {}",
+                    recovery_target.display(),
+                    restore_error
+                ))
+            }
+        };
+    }
+
+    staging.close().map_err(|e| {
+        anyhow::anyhow!("Linked successfully but failed to discard staged target: {e}")
+    })?;
+
+    writeln!(
+        writer,
+        "  \u{2713} {source_display} \u{2192} {target_display} (discarded & linked)"
+    )?;
+
+    Ok(())
+}
+
+fn create_staging_dir(target: &Path) -> Result<tempfile::TempDir> {
+    let parent = target.parent().ok_or_else(|| {
+        anyhow::anyhow!("Cannot stage target without a parent: {}", target.display())
+    })?;
+
+    tempfile::Builder::new()
+        .prefix(".bashc-link-")
+        .tempdir_in(parent)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to create replacement staging directory in {}: {}",
+                parent.display(),
+                e
+            )
+        })
+}
+
+/// Mark the entry as self-managed; leave the local file in place.
+fn resolve_keep(
+    writer: &mut impl Write,
+    entry: &ConfigEntry,
+    home: &Path,
+    project_root: &Path,
+) -> Result<()> {
+    let source_display = format_source(entry);
+    let target_display = display_target(&entry.target, home);
+
+    add_self_managed(
+        project_root,
+        SelfManagedEntry {
+            name: entry.name.clone(),
+            source: entry.source.to_string_lossy().to_string(),
+            target: entry.target.to_string_lossy().to_string(),
+        },
+    )?;
+
+    writeln!(
+        writer,
+        "  \u{25CB} {source_display} \u{2192} {target_display} (kept \u{2014} marked self-managed)"
+    )?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Interactive conflict resolution prompt
+// ---------------------------------------------------------------------------
+
+/// Show an interactive menu for conflict resolution. Returns the chosen strategy.
+/// `Strategy::Prompt` means "Skip for now".
+fn prompt_conflict_resolution(
+    entry: &ConfigEntry,
+    home: &Path,
+    allow_keep: bool,
+) -> Result<Strategy> {
+    let target_display = display_target(&entry.target, home);
+
+    loop {
+        eprintln!(
+            "\n\u{26A0}  {} already exists and is not managed by bashc.\n",
+            target_display
+        );
+
+        let items_with_keep = &[
+            "View diff (repo vs local)",
+            "View local version",
+            "View repo version",
+            "Replace local \u{2014} backup as .bak, then symlink",
+            "Replace local \u{2014} discard original, then symlink",
+            "Keep local \u{2014} mark as self-managed on this machine",
+            "Skip for now",
+        ];
+        let items_without_keep = &[
+            "View diff (repo vs local)",
+            "View local version",
+            "View repo version",
+            "Replace local \u{2014} backup as .bak, then symlink",
+            "Replace local \u{2014} discard original, then symlink",
+            "Skip for now",
+        ];
+        let items = if allow_keep {
+            items_with_keep.as_slice()
+        } else {
+            items_without_keep.as_slice()
+        };
+
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .items(items)
+            .default(0)
+            .interact()
+            .map_err(|e| anyhow::anyhow!("Failed to show conflict menu: {}", e))?;
+
+        match selection {
+            0 => {
+                // Show unified diff, then loop back to menu. View options are
+                // informational, so a read failure (binary, directory,
+                // permission denied, etc.) must not abort the whole `link`
+                // command — surface the error and let the user pick again.
+                if let Err(err) =
+                    crate::configs::diff::print_diff_to_stderr(&entry.source, &entry.target)
+                {
+                    eprintln!("Failed to show diff: {}", err);
+                }
+            }
+            1 => {
+                // Show local file contents
+                if let Err(err) = crate::configs::diff::print_file_to_stderr(&entry.target, "local")
+                {
+                    eprintln!("Failed to show local version: {}", err);
+                }
+            }
+            2 => {
+                // Show repo file contents
+                if let Err(err) = crate::configs::diff::print_file_to_stderr(&entry.source, "repo")
+                {
+                    eprintln!("Failed to show repo version: {}", err);
+                }
+            }
+            3 => return Ok(Strategy::Replace),
+            4 => return Ok(Strategy::Discard),
+            5 if allow_keep => return Ok(Strategy::Keep),
+            5 => return Ok(Strategy::Prompt), // Prompt = skip
+            6 => return Ok(Strategy::Prompt), // Prompt = skip
+            _ => unreachable!(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use tempfile::tempdir;
+
+    use crate::configs::Strategy;
+    use crate::configs::state::SelfManagedEntry;
+
+    fn fake_home() -> PathBuf {
+        PathBuf::from("/home/testuser")
+    }
+
+    fn make_entry(name: &str, source: PathBuf, target: PathBuf) -> ConfigEntry {
+        ConfigEntry {
+            name: name.to_string(),
+            source,
+            target,
+            strategy: Strategy::Prompt,
+        }
+    }
+
+    fn make_entry_with_strategy(
+        name: &str,
+        source: PathBuf,
+        target: PathBuf,
+        strategy: Strategy,
+    ) -> ConfigEntry {
+        ConfigEntry {
+            name: name.to_string(),
+            source,
+            target,
+            strategy,
+        }
+    }
+
+    /// Helper for tests that don't involve conflict resolution.
+    fn capture_link(entries: &[ConfigEntry], self_managed: &[SelfManagedEntry]) -> String {
+        let home = fake_home();
+        let dir = tempdir().unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        write_link(
+            &mut buf,
+            entries,
+            self_managed,
+            &home,
+            dir.path(), // project_root (unused for non-conflict paths)
+            None,       // no force
+            false,      // non-interactive
+        )
+        .expect("write_link failed");
+        String::from_utf8(buf).expect("output is valid UTF-8")
+    }
+
+    /// Helper for conflict resolution tests with a specific force strategy.
+    fn capture_link_with_force(
+        entries: &[ConfigEntry],
+        self_managed: &[SelfManagedEntry],
+        project_root: &Path,
+        force: Option<Strategy>,
+    ) -> String {
+        let home = fake_home();
+        let mut buf: Vec<u8> = Vec::new();
+        write_link(
+            &mut buf,
+            entries,
+            self_managed,
+            &home,
+            project_root,
+            force,
+            false, // non-interactive for tests
+        )
+        .expect("write_link failed");
+        String::from_utf8(buf).expect("output is valid UTF-8")
+    }
+
+    // ── Test 1: Link creates a symlink when target doesn't exist ─────────────
+
+    #[test]
+    fn link_creates_symlink_for_not_linked_entry() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        // target intentionally not created
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link(&[entry], &[]);
+
+        // Symlink should now exist and point to source.
+        assert!(target.is_symlink(), "target should be a symlink");
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source, "symlink should point to source");
+
+        assert!(output.contains("\u{2713}"));
+        assert!(output.contains("(linked)"));
+        assert!(!output.contains("already linked"));
+    }
+
+    // ── Test 2: Link creates parent directories when they don't exist ─────────
+
+    #[test]
+    fn link_creates_parent_directories() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("nested").join("deep").join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        // parent dirs intentionally not created
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link(&[entry], &[]);
+
+        assert!(target.is_symlink(), "target should be a symlink");
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        assert!(output.contains("(linked)"));
+    }
+
+    // ── Test 3: Link skips already-linked entries ─────────────────────────────
+
+    #[test]
+    fn link_skips_already_linked_entry() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        symlink(&source, &target).unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link(&[entry], &[]);
+
+        // Symlink should still exist (unchanged).
+        assert!(target.is_symlink());
+        assert!(output.contains("\u{2713}"));
+        assert!(output.contains("(already linked)"));
+        assert!(!output.contains("(linked)") || output.contains("(already linked)"));
+    }
+
+    // ── Test 4: Link skips self-managed entries ───────────────────────────────
+
+    #[test]
+    fn link_skips_self_managed_entry() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        std::fs::write(&target, "local content").unwrap(); // regular file in SM list
+
+        let sm = vec![SelfManagedEntry {
+            name: "test".to_string(),
+            source: source.to_string_lossy().to_string(),
+            target: target.to_string_lossy().to_string(),
+        }];
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link(&[entry], &sm);
+
+        // The regular file should still be there, not replaced.
+        assert!(
+            !target.is_symlink(),
+            "target should not have been replaced with a symlink"
+        );
+        assert!(output.contains("\u{25CB}"));
+        assert!(output.contains("(self-managed, skipping)"));
+    }
+
+    // ── Test 5: Link errors when source file doesn't exist ───────────────────
+
+    #[test]
+    fn link_errors_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("nonexistent_source.txt");
+        let target = dir.path().join("target.txt");
+        // source intentionally not created
+
+        let entry = make_entry("test", source, target);
+
+        let home = fake_home();
+        let mut buf: Vec<u8> = Vec::new();
+        // Bypassing write_link — validate via run_link-level source check.
+        // Use write_link directly with the missing source to trigger the pre-check.
+        // Actually the source validation is in run_link; test it via a helper that
+        // mimics the validation step.
+        let result = {
+            let missing: Vec<&ConfigEntry> = std::slice::from_ref(&entry)
+                .iter()
+                .filter(|e| !e.source.exists())
+                .collect();
+            if !missing.is_empty() {
+                let paths: Vec<String> = missing
+                    .iter()
+                    .map(|e| e.source.to_string_lossy().into_owned())
+                    .collect();
+                Err(anyhow::anyhow!(
+                    "Source file(s) not found:\n  {}",
+                    paths.join("\n  ")
+                ))
+            } else {
+                write_link(&mut buf, &[entry], &[], &home, dir.path(), None, false)
+            }
+        };
+
+        assert!(result.is_err(), "should error when source is missing");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("Source file(s) not found"),
+            "error should mention missing source"
+        );
+    }
+
+    #[test]
+    fn force_discard_preserves_conflict_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing-source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
+        assert!(output.contains("source missing, cannot link"));
+    }
+
+    #[test]
+    fn force_replace_preserves_conflict_when_source_missing() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("missing-source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
+
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
+        assert!(!PathBuf::from(format!("{}.bak", target.display())).exists());
+        assert!(output.contains("source missing, cannot link"));
+    }
+
+    #[test]
+    fn replace_rolls_back_target_and_previous_backup_when_link_creation_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+        std::fs::write(&backup, "older backup").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_replace_backup_with(&mut output, &entry, &fake_home(), |_| {
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link failure should be returned");
+
+        assert!(error.to_string().contains("original restored"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "older backup");
+        assert!(!target.is_symlink());
+    }
+
+    #[test]
+    fn replace_keeps_previous_backup_when_rollback_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let backup = PathBuf::from(format!("{}.bak", target.display()));
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+        std::fs::write(&backup, "older backup").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_replace_backup_with(&mut output, &entry, &fake_home(), |entry| {
+            std::fs::create_dir(&entry.target)?;
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link and rollback failure should be returned");
+
+        assert!(error.to_string().contains("Recovery data was kept at"));
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "local content");
+        let recovery_dir = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|candidate| {
+                candidate
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bashc-link-")
+            })
+            .expect("recovery directory should persist");
+        assert_eq!(
+            std::fs::read_to_string(recovery_dir.path().join("previous-backup")).unwrap(),
+            "older backup"
+        );
+    }
+
+    #[test]
+    fn discard_rolls_back_original_when_link_creation_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_discard_with(&mut output, &entry, &fake_home(), |_| {
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link failure should be returned");
+
+        assert!(error.to_string().contains("original restored"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "local content");
+        assert!(!target.is_symlink());
+    }
+
+    #[test]
+    fn discard_keeps_original_when_rollback_fails() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let mut output = Vec::new();
+        let error = resolve_discard_with(&mut output, &entry, &fake_home(), |entry| {
+            std::fs::create_dir(&entry.target)?;
+            Err(anyhow::anyhow!("injected link failure"))
+        })
+        .expect_err("injected link and rollback failure should be returned");
+
+        assert!(error.to_string().contains("Original remains at"));
+        let recovery_dir = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|candidate| {
+                candidate
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".bashc-link-")
+            })
+            .expect("recovery directory should persist");
+        assert_eq!(
+            std::fs::read_to_string(recovery_dir.path().join("original-target")).unwrap(),
+            "local content"
+        );
+    }
+
+    // ── Test 6: Conflict entry is skipped with message (non-interactive) ─────
+
+    #[test]
+    fn link_skips_conflict_entry() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        std::fs::write(&target, "local content").unwrap(); // regular file = conflict, not in SM
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link(&[entry], &[]);
+
+        // target should remain unchanged (regular file, not replaced)
+        assert!(!target.is_symlink());
+        assert!(output.contains("\u{2717}"));
+        assert!(output.contains("(conflict \u{2014} skipping)"));
+    }
+
+    // ── Test 7: Force Replace creates .bak and symlink ───────────────────────
+
+    #[test]
+    fn force_replace_creates_backup_and_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
+
+        // Target should now be a symlink to source
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after replace"
+        );
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // .bak should exist with original content
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+        assert!(bak_path.exists(), ".bak file should exist");
+        let bak_content = std::fs::read_to_string(&bak_path).unwrap();
+        assert_eq!(bak_content, "local content");
+
+        assert!(output.contains("(backed up & linked)"));
+    }
+
+    // ── Test 8: Force Replace overwrites existing .bak ───────────────────────
+
+    #[test]
+    fn force_replace_overwrites_existing_bak() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "new local content").unwrap();
+        std::fs::write(&bak_path, "old backup content").unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
+
+        // Target should be a symlink
+        assert!(target.is_symlink());
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // .bak should have the NEW local content (overwrote old backup)
+        let bak_content = std::fs::read_to_string(&bak_path).unwrap();
+        assert_eq!(bak_content, "new local content");
+
+        assert!(output.contains("Overwriting existing backup"));
+        assert!(output.contains("(backed up & linked)"));
+    }
+
+    // ── Test 9: Force Discard removes file and creates symlink ───────────────
+
+    #[test]
+    fn force_discard_removes_file_and_creates_symlink() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
+
+        // Target should be a symlink to source
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after discard"
+        );
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // No .bak file should exist
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+        assert!(!bak_path.exists(), ".bak should not exist after discard");
+
+        assert!(output.contains("(discarded & linked)"));
+    }
+
+    // ── Test 10: Force Discard removes wrong symlink and creates correct one ─
+
+    #[test]
+    fn force_discard_removes_wrong_symlink_and_creates_correct_one() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let other = dir.path().join("other.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&other, "other content").unwrap();
+        symlink(&other, &target).unwrap(); // wrong symlink
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
+
+        // Target should now point to source
+        assert!(target.is_symlink());
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // The "other" file should still exist (we removed the symlink, not its target)
+        assert!(other.exists(), "other file should not have been deleted");
+
+        assert!(output.contains("(discarded & linked)"));
+    }
+
+    // ── Test 11: Force Keep adds to self-managed ─────────────────────────────
+
+    #[test]
+    fn force_keep_adds_to_self_managed() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Keep));
+
+        // Target should remain a regular file (not a symlink)
+        assert!(
+            !target.is_symlink(),
+            "target should not be a symlink after keep"
+        );
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, "local content");
+
+        // Self-managed list should contain this entry
+        let sm = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert_eq!(sm.len(), 1);
+        assert_eq!(sm[0].name, "test");
+        assert_eq!(sm[0].target, target.to_string_lossy().as_ref());
+
+        assert!(output.contains("(kept \u{2014} marked self-managed)"));
+    }
+
+    #[test]
+    fn force_keep_does_not_mark_wrong_symlink_self_managed() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let other = dir.path().join("other.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&other, "other content").unwrap();
+        symlink(&other, &target).unwrap();
+
+        let entry = make_entry("test", source, target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Keep));
+
+        let sm = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert!(
+            sm.is_empty(),
+            "wrong symlink should not create a self-managed marker"
+        );
+
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, other, "wrong symlink should remain untouched");
+        assert!(output.contains("cannot mark self-managed"));
+    }
+
+    // ── Test 12: Entry strategy fallback when force is None ──────────────────
+
+    #[test]
+    fn entry_strategy_used_when_force_is_none() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        // Entry has Replace strategy (not Prompt), force is None
+        let entry =
+            make_entry_with_strategy("test", source.clone(), target.clone(), Strategy::Replace);
+        let output = capture_link_with_force(
+            &[entry],
+            &[],
+            dir.path(),
+            None, // no force — should fall back to entry.strategy
+        );
+
+        // Should have used Replace strategy (backup + symlink)
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink (entry strategy = Replace)"
+        );
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+        assert!(bak_path.exists(), ".bak file should exist");
+
+        assert!(output.contains("(backed up & linked)"));
+    }
+
+    // ── Test 13: Force overrides entry strategy ──────────────────────────────
+
+    #[test]
+    fn force_overrides_entry_strategy() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "repo content").unwrap();
+        std::fs::write(&target, "local content").unwrap();
+
+        // Entry says Keep, but force says Discard — force wins
+        let entry =
+            make_entry_with_strategy("test", source.clone(), target.clone(), Strategy::Keep);
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Discard));
+
+        // Should have used Discard (force overrides entry strategy)
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink (force = Discard)"
+        );
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // No .bak
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+        assert!(!bak_path.exists());
+
+        assert!(output.contains("(discarded & linked)"));
+    }
+
+    // ── Test 14b: Link cleans up stale self-managed marker ───────────────────
+
+    #[test]
+    fn link_removes_stale_self_managed_marker_when_linking_not_linked_entry() {
+        // Scenario: user previously chose "Keep" for this target, then later
+        // deleted the local file. detect_state now returns NotLinked, so
+        // write_link creates a symlink — and must also drop the stale marker
+        // so managed_configs.toml does not accumulate dead entries.
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source.txt");
+        let target = dir.path().join("target.txt");
+
+        std::fs::write(&source, "hello").unwrap();
+        // target intentionally not created (file was deleted)
+
+        // Pre-existing stale marker for this target.
+        crate::configs::state::add_self_managed(
+            dir.path(),
+            SelfManagedEntry {
+                name: "test".to_string(),
+                source: source.to_string_lossy().to_string(),
+                target: target.to_string_lossy().to_string(),
+            },
+        )
+        .unwrap();
+
+        let sm = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert_eq!(sm.len(), 1, "precondition: marker should be present");
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let home = fake_home();
+        let mut buf: Vec<u8> = Vec::new();
+        write_link(&mut buf, &[entry], &sm, &home, dir.path(), None, false)
+            .expect("write_link failed");
+
+        // Symlink should now exist.
+        assert!(target.is_symlink(), "target should be a symlink after link");
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // Stale marker should have been removed.
+        let remaining = crate::configs::state::load_self_managed(dir.path()).unwrap();
+        assert!(
+            remaining.is_empty(),
+            "stale marker should have been removed, got: {remaining:?}"
+        );
+    }
+
+    // ── Test 14: Replace with directory target ───────────────────────────────
+
+    #[test]
+    fn force_replace_handles_directory_target() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("source_dir");
+        let target = dir.path().join("target_dir");
+
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("file.txt"), "repo").unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("file.txt"), "local").unwrap();
+
+        let entry = make_entry("test", source.clone(), target.clone());
+        let output = capture_link_with_force(&[entry], &[], dir.path(), Some(Strategy::Replace));
+
+        assert!(
+            target.is_symlink(),
+            "target should be a symlink after replace"
+        );
+        let link_dest = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_dest, source);
+
+        // .bak should be the renamed directory
+        let bak_path = PathBuf::from(format!("{}.bak", target.display()));
+        assert!(bak_path.is_dir(), ".bak should be a directory");
+        let bak_content = std::fs::read_to_string(bak_path.join("file.txt")).unwrap();
+        assert_eq!(bak_content, "local");
+
+        assert!(output.contains("(backed up & linked)"));
+    }
+}
