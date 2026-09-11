@@ -4,7 +4,7 @@
 # Requirements: curl, sh (POSIX)
 set -e
 
-REPO="sindre/bashCustomization"
+REPO="SindreFonnes/bashCustomization"
 BINARY_NAME="bashc"
 
 curl_fetch() {

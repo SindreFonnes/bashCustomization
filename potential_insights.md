@@ -1,5 +1,12 @@
 # Potential Insights
 
+## Bootstrap repository owner must match the release repository
+
+`init.sh` uses `REPO` for both release discovery and the initial clone. The
+repository is `SindreFonnes/bashCustomization`; using the local username
+`sindre` as the GitHub owner makes release discovery return HTTP 404 even
+when a release and its binaries are published.
+
 ## Ubuntu vs Debian requires separate Distro enum variants
 
 Originally `Distro::Debian` covered both Ubuntu and Debian. This caused 5
