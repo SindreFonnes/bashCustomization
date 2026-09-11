@@ -1,7 +1,12 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
-use crate::install::InstallConfig;
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
+use crate::install::{InstallConfig, InstallationState};
+
+const MICROSOFT_APT_KEY_FINGERPRINTS: &[&str] = &["BC528686B50D79E339D3721CEB3E94ADBE1229CF"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct DotnetInstaller;
@@ -16,14 +21,37 @@ impl crate::install::Installer for DotnetInstaller {
     }
 
     fn is_installed(&self) -> bool {
-        command::exists("dotnet")
+        dotnet_sdk_installed()
+    }
+
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac()
+            || (platform.is_debian() && read_os_release().is_ok())
+            || platform.is_fedora()
+            || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
+    fn installation_state(&self, _platform: &Platform) -> InstallationState {
+        if !command::exists("dotnet") {
+            InstallationState::Missing
+        } else if dotnet_sdk_installed() {
+            InstallationState::Complete
+        } else {
+            InstallationState::Incomplete(
+                "dotnet command exists but no SDK is installed".to_string(),
+            )
+        }
     }
 
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install dotnet via brew");
             } else {
                 println!("  Would install dotnet-sdk-8.0 via apt (Microsoft repo)");
@@ -38,6 +66,12 @@ impl crate::install::Installer for DotnetInstaller {
 
         install_dotnet_apt(platform)
     }
+}
+
+fn dotnet_sdk_installed() -> bool {
+    command::run("dotnet", &["--list-sdks"])
+        .map(|output| !output.trim().is_empty())
+        .unwrap_or(false)
 }
 
 fn install_dotnet_apt(platform: &Platform) -> Result<()> {
@@ -58,6 +92,7 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://packages.microsoft.com/keys/microsoft.asc",
         "/etc/apt/keyrings/microsoft.gpg",
+        MICROSOFT_APT_KEY_FINGERPRINTS,
     )?;
 
     let codename = platform::get_apt_codename().ok_or_else(|| {
@@ -72,10 +107,7 @@ fn install_dotnet_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding Microsoft apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/microsoft-dotnet.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/microsoft-dotnet.list")?;
 
     println!("Installing dotnet-sdk-8.0...");
     package_manager::apt_install("dotnet-sdk-8.0")?;
@@ -108,7 +140,15 @@ fn parse_os_release_content(content: &str) -> Result<(String, String)> {
     }
 
     if version_id.is_empty() {
-        bail!("Could not determine VERSION_ID from /etc/os-release — needed for Microsoft repo URL");
+        bail!(
+            "Could not determine VERSION_ID from /etc/os-release — needed for Microsoft repo URL"
+        );
+    }
+
+    if id != "ubuntu" && id != "debian" {
+        bail!(
+            "Microsoft's .NET apt repository is supported only on exact Ubuntu or Debian hosts; detected '{id}'. Debian-family derivatives need an explicit mapping to their parent repository coordinates"
+        );
     }
 
     Ok((id, version_id))
@@ -155,5 +195,13 @@ mod tests {
         let content = "ID=ubuntu\nVERSION_ID=\n";
         let result = parse_os_release_content(content);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_debian_derivative_errors_before_repo_setup() {
+        let content = "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\nVERSION_ID=\"22\"\n";
+        let error = parse_os_release_content(content).unwrap_err();
+        assert!(error.to_string().contains("exact Ubuntu or Debian"));
+        assert!(error.to_string().contains("linuxmint"));
     }
 }

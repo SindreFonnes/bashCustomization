@@ -32,7 +32,7 @@ warning instead of panicking, and downstream tests skip if eza is not present.
 
 Unlike `ripgrep`, `shellcheck`, `bat`, `fd`, `java`, and `postgres` (all
 available in standard Debian/Ubuntu apt repos), `eza` comes from the
-third-party `http://deb.gierens.de` repo. Tests that verify eza installs in
+third-party `https://deb.gierens.de` repo. Tests that verify eza installs in
 containers need to account for the possibility that this repo is unreachable.
 
 ## java -version prints to stderr, not stdout
@@ -48,3 +48,78 @@ The original Ubuntu `setup.rs` did not expose `apt_install_lock()` or
 When `fast_installs.rs` was added for Ubuntu, these functions were added to
 `setup.rs` to match the Debian pattern and avoid apt lock contention in
 concurrent tests.
+
+## Applicability is an executable support contract
+
+An installer should report itself as applicable only when the current platform
+has a complete route to its postcondition. In particular, “Homebrew can run on
+Fedora” is not enough unless a single-tool invocation also ensures Homebrew
+before selecting the formula path. Treating applicability as a UI/filtering hint
+caused truthful not-applicable outcomes to become late package-manager failures.
+
+## Preserve legacy shell installers as reference, not an implicit fallback
+
+The older `installScripts/` files remain valuable as a searchable record of how
+the original Bash setup worked. Automatically executing them when `bashc` is
+missing, however, creates two installer contracts with different platform and
+verification guarantees. Keeping them as explicit reference material preserves
+the learning value while making the Rust install path the one supported
+responsibility boundary.
+
+## Exact repository-key sets avoid appended trust
+
+Checking that a downloaded keyring contains one expected fingerprint is weaker
+than checking its complete primary-key set: a compromised download could append
+an attacker-controlled primary key alongside the legitimate one. Apt keyring
+bootstrap should compare the exact set of primary fingerprints while allowing
+the publisher's normal subkeys.
+
+## CI validator versions must be visible and reproducible
+
+The Ubuntu runner's apt package currently provides ShellCheck 0.9, while a
+developer machine using Homebrew may run a newer release. A script can therefore
+pass locally but fail the warning-level CI gate. Validation logs should print
+tool versions and divide the suite into named stages; suspected CI-only lint
+failures should be reproduced with the runner's packaged version.
+
+## Zsh completion initialization is interactive-only
+
+`compinit` may prompt when it finds insecure completion directories. On a CI
+runner or another noninteractive shell there is no terminal for that prompt, so
+initialization aborts and leaves `compdef` unavailable. Modules sourced from
+`main.sh` must skip completion initialization and registration unless Zsh is
+interactive; tests should explicitly verify this with stdin detached.
+
+## Config path checks must account for interactions between manifest entries
+
+The September branch review reproduced an outside-home write from `configs
+check`: one entry linked a directory under home to an external checkout, then a
+nested target traversed that new link. Both targets passed the initial scope
+check. A separate fixture with a target equal to its source made `link --force
+discard` delete the original source and leave a self-referential link. These
+are now rejected by validation of the complete active manifest before name
+selection. Validation includes source-tree boundaries, backup paths, and every
+parent directory entry before following its final symlink. Resolving only the
+final target parent misses dependencies hidden by a currently wrong parent
+symlink; the follow-up review reproduced that case and added CLI coverage.
+
+## Installer success and shell command availability need separate checks
+
+Rust's Homebrew activation updates only the installer process environment;
+future shells need their own prefix activation. Also, appending a formula's
+bin directory does not override an earlier unusable executable. The September
+review reproduced a Java installer reporting "already complete" while a fresh
+Bash sourcing session still selected a failing Java shim ahead of the working
+JDK. Startup now activates Homebrew itself and moves OpenJDK ahead of system
+wrappers, while retaining existing Rust toolchain precedence. Fresh Bash/Zsh
+command checks cover repeated sourcing, spaces in paths, and an existing JDK
+directory late in PATH.
+
+## Installer identifiers are not Nix package attributes
+
+The NixOS orchestration shortcut previously passed `tool.name()` to package
+guidance, bypassing package names selected by individual installers. The
+explicit guidance mapping now translates selectors such as `github` to `gh`
+and `azure` to `azure-cli`, and handles composite toolchains and module options.
+Tests check the suggested packages, not just the presence of
+`environment.systemPackages` in the output.

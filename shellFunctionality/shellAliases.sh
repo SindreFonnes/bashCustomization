@@ -7,7 +7,7 @@ alias c="clear";
 alias grepOnly="grep_specific_filetype_in_subfolders";
 alias showSize="find_entity_size";
 alias updateNotes="git_pull_repo $notes_home";
-alias installStuff="$bashC/generalScripts/installStuff.sh";
+alias installStuff="run_my_install base";
 
 ### Restart/reload shell;
 alias restart="restart_shell";
@@ -61,3 +61,5 @@ if [[ $IS_WSL == "true" ]]; then
 fi
 
 alias cb="output_to_clipboad";
+alias clip="output_to_clipboad";
+alias ss="swap_zellij_session";

@@ -61,7 +61,9 @@ pub fn assert_stderr_contains(result: &ExecResult, text: &str) {
 
 /// Assert that a command/binary exists in the container's PATH.
 pub async fn assert_command_exists(container: &TestContainer, name: &str) -> Result<()> {
-    let result = container.exec(&["sh", "-c", &format!("command -v {name}")]).await?;
+    let result = container
+        .exec(&["sh", "-c", &format!("command -v {name}")])
+        .await?;
     if result.exit_code != 0 {
         panic!(
             "Expected command {:?} to exist in container, but `command -v` failed.\nexit_code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",

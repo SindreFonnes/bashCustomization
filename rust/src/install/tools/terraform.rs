@@ -1,7 +1,12 @@
 use anyhow::{Result, bail};
 
-use crate::common::{command, package_manager, platform::{self, Platform}};
+use crate::common::{
+    command, package_manager,
+    platform::{self, Platform},
+};
 use crate::install::InstallConfig;
+
+const HASHICORP_APT_KEY_FINGERPRINTS: &[&str] = &["798AEC654E5C15428C8E42EEAA16FCBCA621E701"];
 
 #[derive(Debug, Clone, Copy)]
 pub struct TerraformInstaller;
@@ -19,11 +24,19 @@ impl crate::install::Installer for TerraformInstaller {
         command::exists("terraform")
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        platform.is_mac() || platform.is_debian() || platform.is_fedora() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         let platform = &config.platform;
 
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install terraform via brew");
             } else {
                 println!("  Would install terraform via apt (HashiCorp GPG key + repo)");
@@ -33,7 +46,8 @@ impl crate::install::Installer for TerraformInstaller {
 
         if !package_manager::is_brew_failed() && package_manager::has_brew() {
             println!("Installing Terraform via brew...");
-            return package_manager::brew_install("terraform");
+            package_manager::brew_tap("hashicorp/tap")?;
+            return package_manager::brew_install("hashicorp/tap/terraform");
         }
 
         install_terraform_apt(platform)
@@ -53,6 +67,7 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     package_manager::apt_add_gpg_key(
         "https://apt.releases.hashicorp.com/gpg",
         "/etc/apt/keyrings/hashicorp.gpg",
+        HASHICORP_APT_KEY_FINGERPRINTS,
     )?;
 
     let codename = platform::get_apt_codename().ok_or_else(|| {
@@ -67,10 +82,7 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     );
 
     println!("Adding HashiCorp apt repository...");
-    package_manager::apt_add_repo(
-        &repo_line,
-        "/etc/apt/sources.list.d/hashicorp.list",
-    )?;
+    package_manager::apt_add_repo(&repo_line, "/etc/apt/sources.list.d/hashicorp.list")?;
 
     println!("Installing terraform...");
     package_manager::apt_install("terraform")?;
@@ -78,4 +90,3 @@ fn install_terraform_apt(platform: &Platform) -> Result<()> {
     println!("Terraform installed");
     Ok(())
 }
-

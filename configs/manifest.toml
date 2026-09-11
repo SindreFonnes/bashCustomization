@@ -1,0 +1,27 @@
+[[config]]
+name = "claude"
+source = "claude/CLAUDE.md"
+target = "~/.claude/CLAUDE.md"
+
+[[config]]
+name = "claude"
+source = "claude/settings.macos.json"
+target = "~/.claude/settings.json"
+platform = "macos"
+
+[[config]]
+name = "claude"
+source = "claude/settings.linux.json"
+target = "~/.claude/settings.json"
+platform = "linux"
+
+[[config]]
+name = "zellij"
+source = "zellij/config.kdl"
+target = "~/.config/zellij/config.kdl"
+
+[[config]]
+name = "ghostty"
+source = "ghostty/config"
+target = "~/Library/Application Support/com.mitchellh.ghostty/config"
+platform = "macos"

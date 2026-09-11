@@ -4,12 +4,19 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = []
+full-install-tests = []
+
 [dependencies]
 bollard = "0.18"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 tar = "0.4"
 futures-util = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
 
 [[test]]
 name = "alpine"

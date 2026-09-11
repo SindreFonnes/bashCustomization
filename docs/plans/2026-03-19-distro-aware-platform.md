@@ -1,5 +1,11 @@
 # Distro-Aware Platform Support Implementation Plan
 
+> **Historical implementation plan.** Distro detection, privilege selection,
+> Debian/macOS paths, NixOS guidance, and explicit applicability outcomes now
+> exist. Fedora remains a Homebrew-based partial baseline; Arch and Alpine have
+> only selected portable/native paths. The unchecked construction steps below
+> are not current status. See `docs/support.md` for outcome-level support.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend bashc's platform model to detect Linux distro families and route package manager operations accordingly, with proper privilege escalation detection.

@@ -57,32 +57,36 @@ async fn assert_nixos_guidance(tool: &str) {
         .await
         .expect("exec failed");
 
-    // Must not panic.
-    assert!(
-        !result.stdout.contains("panic") && !result.stderr.contains("panic"),
-        "process panicked unexpectedly for tool '{}'\n--- stdout ---\n{}\n--- stderr ---\n{}",
-        tool,
-        result.stdout,
-        result.stderr
-    );
+    assert_exit_ok(&result);
 
-    // Must contain NixOS-specific guidance.
+    // A distro label alone is not guidance. Require the actionable declarative
+    // message so an unsupported-installer error cannot satisfy this test.
     let combined = format!("{}{}", result.stdout, result.stderr);
-    let contains_guidance = combined.contains("environment.systemPackages")
-        || combined.contains("nix-env")
-        || combined.contains("nix profile")
-        || combined.contains("configuration.nix")
-        || combined.contains("NixOs")
-        || combined.to_lowercase().contains("nixos");
     assert!(
-        contains_guidance,
-        "expected NixOS guidance in output for tool '{}' \
-         (e.g., 'environment.systemPackages', 'NixOs', 'nixos-rebuild', etc.), \
+        (combined.contains("environment.systemPackages") || combined.contains("fonts.packages"))
+            && combined.contains("nixos-rebuild switch"),
+        "expected actionable NixOS guidance in output for tool '{}', \
          but none found.\nexit_code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
         tool,
         result.exit_code,
         result.stdout,
         result.stderr
+    );
+
+    let expected = match tool {
+        "github" => "[ gh ]",
+        "azure" => "[ azure-cli ]",
+        "java" => "[ jdk ]",
+        "rust" => "[ rustc cargo ]",
+        "postgres" => "[ postgresql ]",
+        "javascript" => "[ nodejs pnpm bun yarn ]",
+        "nerd-font" => "fonts.packages = with pkgs; [ nerd-fonts.jetbrains-mono ];",
+        "docker" => "virtualisation.docker.enable = true;",
+        _ => return,
+    };
+    assert!(
+        combined.contains(expected),
+        "incorrect NixOS configuration for {tool}: {combined}"
     );
 }
 

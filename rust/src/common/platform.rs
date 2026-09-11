@@ -20,6 +20,7 @@ pub enum Distro {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub enum Os {
     MacOs,
     Linux(Distro),
@@ -139,9 +140,7 @@ impl Platform {
         let arch = match std::env::consts::ARCH {
             "x86_64" => Arch::X86_64,
             "aarch64" => Arch::Aarch64,
-            other => bail!(
-                "Unsupported architecture: {other}. Supported: x86_64, aarch64"
-            ),
+            other => bail!("Unsupported architecture: {other}. Supported: x86_64, aarch64"),
         };
 
         let os = match std::env::consts::OS {
@@ -154,9 +153,7 @@ impl Platform {
                     Os::Linux(distro)
                 }
             }
-            other => bail!(
-                "Unsupported OS: {other}. Supported: macOS, Linux, WSL"
-            ),
+            other => bail!("Unsupported OS: {other}. Supported: macOS, Linux, WSL"),
         };
 
         Ok(Platform { os, arch })
@@ -196,11 +193,13 @@ impl Platform {
     }
 
     /// Returns true if the distro is Fedora (or a derivative like Rocky, CentOS).
+    #[allow(dead_code)]
     pub fn is_fedora(&self) -> bool {
         self.distro() == Some(&Distro::Fedora)
     }
 
     /// Returns true if the distro is Arch (or a derivative like Manjaro).
+    #[allow(dead_code)]
     pub fn is_arch(&self) -> bool {
         self.distro() == Some(&Distro::Arch)
     }
@@ -410,80 +409,146 @@ ID_LIKE=\"rhel fedora\"
 
     #[test]
     fn go_os_strings() {
-        let mac = Platform { os: Os::MacOs, arch: Arch::X86_64 };
+        let mac = Platform {
+            os: Os::MacOs,
+            arch: Arch::X86_64,
+        };
         assert_eq!(mac.go_os(), "darwin");
 
-        let linux = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let linux = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert_eq!(linux.go_os(), "linux");
 
-        let wsl = Platform { os: Os::Wsl(Distro::Debian), arch: Arch::X86_64 };
+        let wsl = Platform {
+            os: Os::Wsl(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert_eq!(wsl.go_os(), "linux");
     }
 
     #[test]
     fn go_arch_strings() {
-        let x86 = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let x86 = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert_eq!(x86.go_arch(), "amd64");
 
-        let arm = Platform { os: Os::Linux(Distro::Debian), arch: Arch::Aarch64 };
+        let arm = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::Aarch64,
+        };
         assert_eq!(arm.go_arch(), "arm64");
     }
 
     #[test]
     fn is_linux_includes_wsl() {
-        let wsl = Platform { os: Os::Wsl(Distro::Debian), arch: Arch::X86_64 };
+        let wsl = Platform {
+            os: Os::Wsl(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert!(wsl.is_linux());
         assert!(wsl.is_wsl());
 
-        let linux = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let linux = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert!(linux.is_linux());
         assert!(!linux.is_wsl());
     }
 
     #[test]
     fn distro_accessors() {
-        let mac = Platform { os: Os::MacOs, arch: Arch::X86_64 };
+        let mac = Platform {
+            os: Os::MacOs,
+            arch: Arch::X86_64,
+        };
         assert_eq!(mac.distro(), None);
         assert!(!mac.is_debian());
 
-        let debian = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let debian = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         assert_eq!(debian.distro(), Some(&Distro::Debian));
         assert!(debian.is_debian());
         assert!(!debian.is_ubuntu());
         assert!(!debian.is_fedora());
 
-        let ubuntu = Platform { os: Os::Linux(Distro::Ubuntu), arch: Arch::X86_64 };
+        let ubuntu = Platform {
+            os: Os::Linux(Distro::Ubuntu),
+            arch: Arch::X86_64,
+        };
         assert_eq!(ubuntu.distro(), Some(&Distro::Ubuntu));
-        assert!(ubuntu.is_debian(), "Ubuntu should be considered debian-family");
+        assert!(
+            ubuntu.is_debian(),
+            "Ubuntu should be considered debian-family"
+        );
         assert!(ubuntu.is_ubuntu());
         assert!(!ubuntu.is_fedora());
 
-        let fedora = Platform { os: Os::Linux(Distro::Fedora), arch: Arch::X86_64 };
+        let fedora = Platform {
+            os: Os::Linux(Distro::Fedora),
+            arch: Arch::X86_64,
+        };
         assert!(fedora.is_fedora());
         assert!(!fedora.is_debian());
 
-        let arch = Platform { os: Os::Linux(Distro::Arch), arch: Arch::X86_64 };
+        let arch = Platform {
+            os: Os::Linux(Distro::Arch),
+            arch: Arch::X86_64,
+        };
         assert!(arch.is_arch());
 
-        let alpine = Platform { os: Os::Linux(Distro::Alpine), arch: Arch::X86_64 };
+        let alpine = Platform {
+            os: Os::Linux(Distro::Alpine),
+            arch: Arch::X86_64,
+        };
         assert!(alpine.is_alpine());
 
-        let nixos = Platform { os: Os::Linux(Distro::NixOs), arch: Arch::X86_64 };
+        let nixos = Platform {
+            os: Os::Linux(Distro::NixOs),
+            arch: Arch::X86_64,
+        };
         assert!(nixos.is_nixos());
     }
 
     #[test]
     fn display_includes_distro() {
-        let linux = Platform { os: Os::Linux(Distro::Debian), arch: Arch::X86_64 };
+        let linux = Platform {
+            os: Os::Linux(Distro::Debian),
+            arch: Arch::X86_64,
+        };
         let display = format!("{linux}");
-        assert!(display.contains("Linux"), "display should contain Linux: {display}");
-        assert!(display.contains("Debian"), "display should contain Debian: {display}");
-        assert!(display.contains("x86_64"), "display should contain x86_64: {display}");
+        assert!(
+            display.contains("Linux"),
+            "display should contain Linux: {display}"
+        );
+        assert!(
+            display.contains("Debian"),
+            "display should contain Debian: {display}"
+        );
+        assert!(
+            display.contains("x86_64"),
+            "display should contain x86_64: {display}"
+        );
 
-        let mac = Platform { os: Os::MacOs, arch: Arch::Aarch64 };
+        let mac = Platform {
+            os: Os::MacOs,
+            arch: Arch::Aarch64,
+        };
         let display = format!("{mac}");
-        assert!(display.contains("macOS"), "display should contain macOS: {display}");
-        assert!(display.contains("aarch64"), "display should contain aarch64: {display}");
+        assert!(
+            display.contains("macOS"),
+            "display should contain macOS: {display}"
+        );
+        assert!(
+            display.contains("aarch64"),
+            "display should contain aarch64: {display}"
+        );
     }
 
     // -----------------------------------------------------------------------

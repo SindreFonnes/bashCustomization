@@ -1,5 +1,11 @@
 # E2E Integration Test Crate Implementation Plan
 
+> **Historical implementation plan.** The standalone E2E crate and distro
+> suites exist and compile. The default source-fresh behavior tier is invoked by
+> `tests/e2e/run.sh`; slower real package-install suites require the
+> `full-install-tests` feature. Clean-host support is not promoted merely because
+> this plan's files exist. See `docs/support.md` and the current remediation plan.
+
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a standalone Rust test crate that uses Docker (via `bollard`) to run bashc inside real Linux containers and verify behavior per distro.

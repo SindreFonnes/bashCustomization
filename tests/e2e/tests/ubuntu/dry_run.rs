@@ -14,8 +14,7 @@ async fn dry_run_exits_zero() {
 }
 
 #[tokio::test]
-async fn dry_run_detects_debian_family() {
-    // Ubuntu is detected as Debian family via ID_LIKE=debian in /etc/os-release.
+async fn dry_run_detects_ubuntu() {
     let container = setup::get_container().await;
     let result = container
         .exec(&["bashc", "install", "--dry-run", "all"])
@@ -23,7 +22,19 @@ async fn dry_run_detects_debian_family() {
         .expect("exec failed");
 
     assert_exit_ok(&result);
-    assert_stdout_contains(&result, "Debian");
+    assert_stdout_contains(&result, "Ubuntu");
+}
+
+#[tokio::test]
+async fn dry_run_routes_formula_tools_through_brew() {
+    let container = setup::get_container().await;
+    let result = container
+        .exec(&["bashc", "install", "--dry-run", "ripgrep"])
+        .await
+        .expect("exec failed");
+
+    assert_exit_ok(&result);
+    assert_stdout_contains(&result, "Would install ripgrep via brew");
 }
 
 #[tokio::test]

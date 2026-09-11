@@ -2,17 +2,20 @@ use anyhow::{Context, Result};
 use semver::Version;
 
 /// Parse a version string, stripping common prefixes (v, go).
+#[allow(dead_code)]
 pub fn parse(version_str: &str) -> Result<Version> {
     let stripped = version_str
         .strip_prefix("go")
         .or_else(|| version_str.strip_prefix('v'))
         .unwrap_or(version_str);
 
-    Version::parse(stripped)
-        .with_context(|| format!("failed to parse version: {version_str:?} (stripped: {stripped:?})"))
+    Version::parse(stripped).with_context(|| {
+        format!("failed to parse version: {version_str:?} (stripped: {stripped:?})")
+    })
 }
 
 /// Returns true if `new_ver` is greater than `current`.
+#[allow(dead_code)]
 pub fn is_newer(current: &str, new_ver: &str) -> Result<bool> {
     let current = parse(current)?;
     let new = parse(new_ver)?;

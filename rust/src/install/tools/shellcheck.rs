@@ -19,9 +19,17 @@ impl crate::install::Installer for ShellcheckInstaller {
         command::exists("shellcheck")
     }
 
+    fn is_applicable(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform) || platform.is_debian() || platform.is_nixos()
+    }
+
+    fn requires_brew(&self, platform: &Platform) -> bool {
+        package_manager::is_brew_applicable(platform)
+    }
+
     fn install(&self, config: &InstallConfig) -> Result<()> {
         if config.dry_run {
-            if !package_manager::is_brew_failed() && package_manager::has_brew() {
+            if package_manager::prefers_brew(&config.platform) {
                 println!("  Would install shellcheck via brew");
             } else {
                 println!("  Would install shellcheck via package manager");

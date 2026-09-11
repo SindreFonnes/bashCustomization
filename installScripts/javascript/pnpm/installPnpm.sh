@@ -1,6 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
-set -eo pipefail;
-
-curl -fsSL https://get.pnpm.io/install.sh | sh - &&
-echo "Finished installing pnpm";
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+exec "$script_dir/../../runBashcInstaller.sh" javascript "$@"

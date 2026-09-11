@@ -32,7 +32,7 @@ pub fn all_distros() -> Vec<DistroConfig> {
         DistroConfig {
             image_tag: "bashc-test-ubuntu".into(),
             dockerfile: "Dockerfile.ubuntu".into(),
-            expected_distro_label: "Debian".into(), // Ubuntu detected as Debian family
+            expected_distro_label: "Ubuntu".into(),
             skip_on_arm64: false,
         },
         DistroConfig {
