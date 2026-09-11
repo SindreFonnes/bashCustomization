@@ -63,6 +63,8 @@ Automatic startup checks never modify targets outside the current user's home di
 
 Manifest sources must be relative paths contained by `configs/` both lexically and after filesystem symlinks are resolved. A source symlink that escapes the directory is rejected before any target is changed.
 
+The complete active manifest is checked before selecting a named group. Targets and their `.bak` paths must not overlap each other or the repository's `configs/` directory, including its ancestors. Parent symlink aliases are included in this check. A directory can be linked as a single target, but it cannot also contain another managed target. These rules prevent one entry from redirecting another entry's writes or deleting source files; `--allow-outside-home` does not override them. Invalid layouts are rejected by all config commands before any changes are made.
+
 `bashc configs link` and `bashc configs unlink` authorize targets inside the current user's home directory by default. The home directory itself and paths that resolve outside it through a symlinked parent are rejected. A deliberately external target requires the explicit flag on that invocation:
 
 ```sh

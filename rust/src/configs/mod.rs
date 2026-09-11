@@ -2,6 +2,7 @@ pub(crate) mod check;
 pub(crate) mod diff;
 pub(crate) mod link;
 pub mod manifest;
+mod safety;
 pub(crate) mod state;
 pub(crate) mod status;
 pub(crate) mod unlink;

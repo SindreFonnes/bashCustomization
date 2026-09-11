@@ -41,7 +41,10 @@ pub fn load_manifest(project_root: &Path, platform: &Platform) -> Result<Vec<Con
         .with_context(|| format!("Failed to read manifest at {}", manifest_path.display()))?;
 
     let home = crate::configs::home_dir()?;
-    load_manifest_from_str(&content, project_root, platform, &home.to_string_lossy())
+    let entries =
+        load_manifest_from_str(&content, project_root, platform, &home.to_string_lossy())?;
+    super::safety::validate_layout(&entries, project_root)?;
+    Ok(entries)
 }
 
 /// Load the manifest from `<project_root>/configs/manifest.toml` without

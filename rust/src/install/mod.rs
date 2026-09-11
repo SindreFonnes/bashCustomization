@@ -1,3 +1,4 @@
+mod nixos;
 mod orchestrator;
 pub mod tools;
 

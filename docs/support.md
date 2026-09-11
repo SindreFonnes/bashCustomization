@@ -24,6 +24,12 @@ what the repository currently proves.
 
 ## Capability status
 
+NixOS guidance maps installer names to explicit Nixpkgs attributes (for example,
+`github` to `gh` and `azure` to `azure-cli`). Composite toolchains list their
+packages; fonts use `fonts.packages`, and Docker includes its service option.
+Rust and Node.js are selected through Nixpkgs on this route, rather than rustup
+or nvm. Both normal and dry-run commands show the suggested configuration.
+
 | Capability | macOS | Debian/Ubuntu | WSL | Fedora/Arch/Alpine | NixOS |
 | --- | --- | --- | --- | --- | --- |
 | Platform detection | Yes | Yes | Yes | Yes | Yes |

@@ -63,6 +63,12 @@ bashc configs link zellij
 bashc configs diff
 ```
 
+Shell startup also activates an existing Homebrew installation from `PATH`,
+`HOMEBREW_PREFIX`, or its standard macOS/Linuxbrew location. This is necessary
+because installing tools in a Rust subprocess cannot update future shells.
+Homebrew's OpenJDK bin directory takes precedence over system Java wrappers;
+an existing user Rust toolchain retains precedence over the Brew rustup fallback.
+
 Use `--verbose` on install commands to stream full subprocess output. Config
 targets and strategies are declared in `configs/manifest.toml`; review status
 and diffs before forcing conflict resolution.

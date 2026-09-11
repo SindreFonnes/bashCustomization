@@ -89,3 +89,37 @@ runner or another noninteractive shell there is no terminal for that prompt, so
 initialization aborts and leaves `compdef` unavailable. Modules sourced from
 `main.sh` must skip completion initialization and registration unless Zsh is
 interactive; tests should explicitly verify this with stdin detached.
+
+## Config path checks must account for interactions between manifest entries
+
+The September branch review reproduced an outside-home write from `configs
+check`: one entry linked a directory under home to an external checkout, then a
+nested target traversed that new link. Both targets passed the initial scope
+check. A separate fixture with a target equal to its source made `link --force
+discard` delete the original source and leave a self-referential link. These
+are now rejected by validation of the complete active manifest before name
+selection. Validation includes source-tree boundaries, backup paths, and every
+parent directory entry before following its final symlink. Resolving only the
+final target parent misses dependencies hidden by a currently wrong parent
+symlink; the follow-up review reproduced that case and added CLI coverage.
+
+## Installer success and shell command availability need separate checks
+
+Rust's Homebrew activation updates only the installer process environment;
+future shells need their own prefix activation. Also, appending a formula's
+bin directory does not override an earlier unusable executable. The September
+review reproduced a Java installer reporting "already complete" while a fresh
+Bash sourcing session still selected a failing Java shim ahead of the working
+JDK. Startup now activates Homebrew itself and moves OpenJDK ahead of system
+wrappers, while retaining existing Rust toolchain precedence. Fresh Bash/Zsh
+command checks cover repeated sourcing, spaces in paths, and an existing JDK
+directory late in PATH.
+
+## Installer identifiers are not Nix package attributes
+
+The NixOS orchestration shortcut previously passed `tool.name()` to package
+guidance, bypassing package names selected by individual installers. The
+explicit guidance mapping now translates selectors such as `github` to `gh`
+and `azure` to `azure-cli`, and handles composite toolchains and module options.
+Tests check the suggested packages, not just the presence of
+`environment.systemPackages` in the output.

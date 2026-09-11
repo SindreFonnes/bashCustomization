@@ -84,6 +84,7 @@ shellcheck \
     "$project_root/tests/e2e/run.sh" \
     "$project_root/tests/shell/bootstrap.sh" \
     "$project_root/tests/shell/smoke.sh" \
+    "$project_root/tests/shell/tool_paths.sh" \
     "$project_root/tests/validate.sh"
 
 start_group "Shell bootstrap tests"
@@ -91,3 +92,6 @@ start_group "Shell bootstrap tests"
 
 start_group "Bash and Zsh sourcing smoke tests"
 "$project_root/tests/shell/smoke.sh"
+
+start_group "Homebrew and Java shell PATH tests"
+"$project_root/tests/shell/tool_paths.sh"

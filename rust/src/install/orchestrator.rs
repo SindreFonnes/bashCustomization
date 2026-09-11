@@ -44,16 +44,15 @@ fn run_installer(tool: &dyn Installer, config: &InstallConfig) -> InstallOutcome
     }
 
     if config.platform.is_nixos() {
-        if config.dry_run {
-            println!(
-                "  Would provide NixOS declarative guidance for {}",
-                tool.name()
-            );
-            return InstallOutcome::Planned;
-        }
-
-        return match crate::common::package_manager::nix_guidance(tool.name()) {
-            Ok(()) => InstallOutcome::Guidance("declarative NixOS configuration".to_string()),
+        return match super::nixos::guidance(tool.name()) {
+            Ok(guidance) => {
+                println!("{guidance}");
+                if config.dry_run {
+                    InstallOutcome::Planned
+                } else {
+                    InstallOutcome::Guidance("declarative NixOS configuration".to_string())
+                }
+            }
             Err(e) => InstallOutcome::Failed(format!("{e:#}")),
         };
     }

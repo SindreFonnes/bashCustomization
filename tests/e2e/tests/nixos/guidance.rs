@@ -63,7 +63,7 @@ async fn assert_nixos_guidance(tool: &str) {
     // message so an unsupported-installer error cannot satisfy this test.
     let combined = format!("{}{}", result.stdout, result.stderr);
     assert!(
-        combined.contains("environment.systemPackages")
+        (combined.contains("environment.systemPackages") || combined.contains("fonts.packages"))
             && combined.contains("nixos-rebuild switch"),
         "expected actionable NixOS guidance in output for tool '{}', \
          but none found.\nexit_code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
@@ -71,6 +71,22 @@ async fn assert_nixos_guidance(tool: &str) {
         result.exit_code,
         result.stdout,
         result.stderr
+    );
+
+    let expected = match tool {
+        "github" => "[ gh ]",
+        "azure" => "[ azure-cli ]",
+        "java" => "[ jdk ]",
+        "rust" => "[ rustc cargo ]",
+        "postgres" => "[ postgresql ]",
+        "javascript" => "[ nodejs pnpm bun yarn ]",
+        "nerd-font" => "fonts.packages = with pkgs; [ nerd-fonts.jetbrains-mono ];",
+        "docker" => "virtualisation.docker.enable = true;",
+        _ => return,
+    };
+    assert!(
+        combined.contains(expected),
+        "incorrect NixOS configuration for {tool}: {combined}"
     );
 }
 
