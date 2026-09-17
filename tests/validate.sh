@@ -74,6 +74,7 @@ find "$project_root" \
 start_group "ShellCheck warning-level critical scripts"
 shellcheck \
     "$project_root/init.sh" \
+    "$project_root/install_bashc_binary.sh" \
     "$project_root/main.sh" \
     "$project_root/general_functions.sh" \
     "$project_root/variables.sh" \

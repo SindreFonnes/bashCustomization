@@ -1,5 +1,14 @@
 # Potential Insights
 
+## Fresh-machine bootstrap needs the checkout, not a single curl script
+
+`init.sh` is no longer a self-contained one-file installer. It sources
+`install_bashc_binary.sh` from the same directory for GitHub release fetch,
+checksum verification, and persistent install. `curl …/init.sh | sh` therefore
+fails unless that sibling file is already on disk. The supported path is run
+`init.sh` from a clone (or run `install_bashc_binary.sh` alone when only the
+binary is needed).
+
 ## Bootstrap repository owner must match the release repository
 
 `init.sh` uses `REPO` for both release discovery and the initial clone. The
