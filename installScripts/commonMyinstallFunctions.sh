@@ -147,7 +147,8 @@ is_ubuntu_debian () {
     
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [[ "$ID" == "ubuntu" ]] || [[ "$ID_LIKE" == *"debian"* ]] || [[ "$ID" == "debian" ]]; then
+    # ID_LIKE may be absent; callers can enable nounset (set -u).
+    if [[ "${ID:-}" == "ubuntu" ]] || [[ "${ID_LIKE:-}" == *"debian"* ]] || [[ "${ID:-}" == "debian" ]]; then
         return 0;
     fi
     

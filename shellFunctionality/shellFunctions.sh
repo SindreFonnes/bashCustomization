@@ -156,12 +156,23 @@ start_or_install_keychain () {
 }
 
 update_packages () {
-	if [[ $IS_MAC == "true" ]]; then
+	if command -v brew >/dev/null 2>&1; then
 		echo "Updating brew packages..."
 		brew update && brew upgrade;
-	else
+	fi
+
+	if [[ $IS_MAC == "true" ]]; then
+		return
+	fi
+
+	if command -v dnf >/dev/null 2>&1; then
+		echo "Updating dnf packages..."
+		sudo dnf upgrade --refresh -y;
+	elif command -v apt >/dev/null 2>&1; then
 		echo "Updating apt packages..."
 		sudo apt update && sudo apt upgrade -y;
+	else
+		echo "system not supported"
 	fi
 }
 

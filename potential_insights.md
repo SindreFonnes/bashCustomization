@@ -139,3 +139,20 @@ explicit guidance mapping now translates selectors such as `github` to `gh`
 and `azure` to `azure-cli`, and handles composite toolchains and module options.
 Tests check the suggested packages, not just the presence of
 `environment.systemPackages` in the output.
+
+## Distribution detection under strict shell options
+
+`setupGpgSigning.sh` enables `set -u` before loading the shared installer
+helpers. `/etc/os-release` can omit `ID_LIKE`, so distribution checks must use
+defaulted expansions for missing fields. Otherwise even Debian detection can
+abort before reaching its direct `ID` check.
+
+## GPG setup dependency helpers reserve stdout
+
+`setupGpgSigning.sh` captures dependency helper output into `GPG_BIN`. Any
+installer progress on stdout becomes part of the executable path. The shared
+dependency helper redirects installer output to stderr and explicitly propagates
+installation failure, since command substitutions can clear Bash's `errexit`
+option. Check each executable on PATH before selecting packages: installations
+can mix Homebrew and system packages. `is_mac_os` also bootstraps Homebrew, so
+the dependency helper uses `OSTYPE` to avoid installing anything during detection.
