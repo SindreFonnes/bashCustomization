@@ -116,6 +116,8 @@ pub enum Tool {
     Ripgrep(tools::ripgrep::RipgrepInstaller),
     Bat(tools::bat::BatInstaller),
     Fd(tools::fd::FdInstaller),
+    Fzf(tools::fzf::FzfInstaller),
+    Lazygit(tools::lazygit::LazygitInstaller),
     Eza(tools::eza::EzaInstaller),
     Shellcheck(tools::shellcheck::ShellcheckInstaller),
     NerdFont(tools::nerd_font::NerdFontInstaller),
@@ -144,6 +146,8 @@ macro_rules! delegate {
             Tool::Ripgrep(i)    => i.$method($($arg),*),
             Tool::Bat(i)        => i.$method($($arg),*),
             Tool::Fd(i)         => i.$method($($arg),*),
+            Tool::Fzf(i)        => i.$method($($arg),*),
+            Tool::Lazygit(i)    => i.$method($($arg),*),
             Tool::Eza(i)        => i.$method($($arg),*),
             Tool::Shellcheck(i) => i.$method($($arg),*),
             Tool::NerdFont(i)   => i.$method($($arg),*),
@@ -212,6 +216,8 @@ pub const ALL_TOOLS: &[Tool] = &[
     Tool::Ripgrep(tools::ripgrep::RipgrepInstaller),
     Tool::Bat(tools::bat::BatInstaller),
     Tool::Fd(tools::fd::FdInstaller),
+    Tool::Fzf(tools::fzf::FzfInstaller),
+    Tool::Lazygit(tools::lazygit::LazygitInstaller),
     Tool::Eza(tools::eza::EzaInstaller),
     Tool::Shellcheck(tools::shellcheck::ShellcheckInstaller),
     Tool::NerdFont(tools::nerd_font::NerdFontInstaller),
@@ -242,13 +248,37 @@ mod tests {
     }
 
     #[test]
+    fn fzf_and_lazygit_are_included_in_system_setup() {
+        for os in [
+            Os::MacOs,
+            Os::Linux(Distro::Ubuntu),
+            Os::Linux(Distro::Debian),
+            Os::Linux(Distro::Fedora),
+            Os::Wsl(Distro::Ubuntu),
+            Os::Linux(Distro::NixOs),
+        ] {
+            for arch in [Arch::X86_64, Arch::Aarch64] {
+                let platform = Platform {
+                    os: os.clone(),
+                    arch,
+                };
+                for name in ["fzf", "lazygit"] {
+                    let tool = find_tool(name).expect("tool must be registered");
+                    assert!(tool.include_in_all(&platform), "{name} on {platform}");
+                    assert_eq!(tool.phase(), 1);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn find_tool_unknown() {
         assert!(find_tool("nonexistent").is_none());
     }
 
     #[test]
     fn all_tools_count() {
-        assert_eq!(ALL_TOOLS.len(), 22, "expected 22 tools (21 + doas)");
+        assert_eq!(ALL_TOOLS.len(), 24, "expected 24 tools");
     }
 
     #[test]
@@ -287,6 +317,8 @@ mod tests {
             "dotnet",
             "eza",
             "fd",
+            "fzf",
+            "lazygit",
             "github",
             "go",
             "java",

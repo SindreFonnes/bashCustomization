@@ -20,6 +20,8 @@ pub(super) fn guidance(tool: &str) -> Result<String> {
         "ripgrep" => "ripgrep",
         "bat" => "bat",
         "fd" => "fd",
+        "fzf" => "fzf",
+        "lazygit" => "lazygit",
         "eza" => "eza",
         "shellcheck" => "shellcheck",
         "nerd-font" => "nerd-fonts.jetbrains-mono",

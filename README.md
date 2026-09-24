@@ -58,10 +58,17 @@ The framework adds `$HOME/.mybin` to `PATH`. Useful commands include:
 ```sh
 bashc install all --dry-run
 bashc install ripgrep
+bashc install fzf
+bashc install lazygit
 bashc configs status
 bashc configs link zellij
 bashc configs diff
 ```
+
+`fzf` and `lazygit` are included in system setup (`init.sh` / `bashc install all`).
+Both use Homebrew on supported macOS and Linux/WSL hosts; NixOS receives
+declarative configuration guidance. The fzf installer also has a native package
+manager path, while lazygit requires Homebrew.
 
 Shell startup also activates an existing Homebrew installation from `PATH`,
 `HOMEBREW_PREFIX`, or its standard macOS/Linuxbrew location. This is necessary

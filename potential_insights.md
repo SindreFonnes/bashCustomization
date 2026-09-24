@@ -156,3 +156,11 @@ installation failure, since command substitutions can clear Bash's `errexit`
 option. Check each executable on PATH before selecting packages: installations
 can mix Homebrew and system packages. `is_mac_os` also bootstraps Homebrew, so
 the dependency helper uses `OSTYPE` to avoid installing anything during detection.
+
+## Lazygit package availability varies by distro release
+
+The lazygit installer uses Homebrew on supported macOS/Linux/WSL hosts because
+older Debian/Ubuntu releases lack a native lazygit package. Keep that distinction
+when copying the ripgrep/fd installer pattern. Upstream documents native apt
+support starting with Debian 13 and Ubuntu 25.10:
+https://github.com/jesseduffield/lazygit#debian-and-ubuntu
