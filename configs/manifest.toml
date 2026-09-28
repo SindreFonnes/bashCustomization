@@ -17,8 +17,15 @@ platform = "linux"
 
 [[config]]
 name = "zellij"
-source = "zellij/config.kdl"
+source = "zellij/config.macos.kdl"
 target = "~/.config/zellij/config.kdl"
+platform = "macos"
+
+[[config]]
+name = "zellij"
+source = "zellij/config.linux.kdl"
+target = "~/.config/zellij/config.kdl"
+platform = "linux"
 
 [[config]]
 name = "ghostty"

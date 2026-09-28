@@ -31,7 +31,7 @@ target = "~/.config/zellij/config.kdl"
 platform = "linux"
 ```
 
-Note: this is an illustrative example. The actual zellij entry in this repo uses a single cross-platform `config.kdl` because OSC52 makes the per-OS clipboard split unnecessary — see the trade-off note below.
+Zellij uses this split. The two files match except `scrollback_editor`: Linuxbrew Neovim on Linux, Homebrew Neovim on macOS. Clipboard still uses OSC52 on both, so that setting stays shared — see the trade-off note below.
 
 **Trade-off:** when most of the file is shared between platforms, this duplicates content. That is an accepted cost in exchange for keeping the simple symlink model and avoiding a templating engine. Use this pattern only when files genuinely differ per OS. For trivial differences, prefer a cross-platform default instead — for example, zellij's clipboard integration uses OSC52 (supported everywhere) rather than `pbcopy`, which avoids the need for per-platform files entirely.
 
