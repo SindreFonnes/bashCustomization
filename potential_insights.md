@@ -164,3 +164,16 @@ older Debian/Ubuntu releases lack a native lazygit package. Keep that distinctio
 when copying the ripgrep/fd installer pattern. Upstream documents native apt
 support starting with Debian 13 and Ubuntu 25.10:
 https://github.com/jesseduffield/lazygit#debian-and-ubuntu
+
+## Zellij session names are limited by the Unix socket path length
+
+Each zellij session gets a socket at
+`<socket dir>/contract_version_<n>/<session name>`, and Unix socket paths are
+capped at 103 bytes on macOS (107 on Linux). macOS' default `$TMPDIR`
+(`/var/folders/...`) left only 24 characters for the session name.
+`zellij attach --create` rejects names that are too long with a clear error, but
+`zellij action switch-session --cwd --layout` (used by `ss` inside zellij) does
+not, and hangs or crashes the server. `standard_settings.sh` sets a short
+`ZELLIJ_SOCKET_DIR` on macOS, and `swap_zellij_session` truncates names that
+still don't fit. Exited (resurrectable) sessions also keep their names, so `ss`
+switches to them instead of creating a new session with the same name.

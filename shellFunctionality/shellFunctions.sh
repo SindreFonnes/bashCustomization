@@ -320,6 +320,7 @@ _zellij_projects() {
 }
 
 
+# Running sessions only.
 _zellij_sessions() {
     zellij list-sessions --no-formatting 2>/dev/null |
         awk '
@@ -330,8 +331,69 @@ _zellij_sessions() {
 }
 
 
+# Exited sessions that zellij can resurrect from its serialization cache.
+_zellij_exited_sessions() {
+    zellij list-sessions --no-formatting 2>/dev/null |
+        awk '
+            NF && $0 ~ /EXITED/ {
+                print $1
+            }
+        '
+}
+
+
+# True for running AND exited sessions. An exited session still owns its
+# name: creating a new session with that name (with --layout/--cwd) instead
+# of resurrecting it confuses zellij, so callers must switch/attach instead.
 _zellij_session_exists() {
-    _zellij_sessions | grep -Fxq -- "$1"
+    zellij list-sessions --no-formatting --short 2>/dev/null |
+        grep -Fxq -- "$1"
+}
+
+
+# Directory zellij places session sockets in. Mirrors zellij's own lookup:
+# $ZELLIJ_SOCKET_DIR, else $XDG_RUNTIME_DIR/zellij (Linux), else
+# $TMPDIR/zellij-<uid>; followed by a contract_version_<n> subdirectory.
+_zellij_socket_dir() {
+    local base
+    local versioned
+
+    if [ -n "${ZELLIJ_SOCKET_DIR:-}" ]; then
+        base="${ZELLIJ_SOCKET_DIR%/}"
+    elif [ "${IS_MAC:-}" != "true" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        base="${XDG_RUNTIME_DIR%/}/zellij"
+    else
+        base="${TMPDIR:-/tmp}"
+        base="${base%/}/zellij-$(id -u)"
+    fi
+
+    # Use the newest existing contract dir; fall back to the current one.
+    versioned="$(
+        find "$base" -mindepth 1 -maxdepth 1 -type d \
+            -name 'contract_version_*' 2>/dev/null |
+            sort -V |
+            tail -n 1
+    )"
+
+    printf '%s\n' "${versioned:-$base/contract_version_1}"
+}
+
+
+# Longest session name whose socket path fits the OS limit for Unix socket
+# paths (sun_path: 104 bytes on macOS, 108 on Linux, minus the NUL byte).
+# `zellij attach --create` checks this itself, but
+# `zellij action switch-session` does not and hangs/crashes the server when
+# the name is too long.
+_zellij_max_session_name_length() {
+    local max_path=107
+    local socket_dir
+
+    [ "${IS_MAC:-}" = "true" ] && max_path=103
+
+    socket_dir="$(_zellij_socket_dir)"
+
+    # +1 for the '/' between the directory and the session name.
+    printf '%s\n' "$(( max_path - ${#socket_dir} - 1 ))"
 }
 
 
@@ -399,6 +461,13 @@ _zellij_fzf_target() {
                     printf 'session\t%s\n' "$session"
             done
 
+        # Exited sessions (resurrected on switch)
+        _zellij_exited_sessions |
+            while IFS= read -r session; do
+                [ -n "$session" ] &&
+                    printf 'exited\t%s\n' "$session"
+            done
+
         # Projects
         _zellij_projects |
             while IFS= read -r project; do
@@ -419,6 +488,7 @@ swap_zellij_session() {
     local selected_type
     local selected_value
     local selected_name
+    local max_name_length
     local arg
     local layout="compact"
 
@@ -431,7 +501,8 @@ swap_zellij_session() {
             selected_type="${selected%%$'\t'*}"
             selected_value="${selected#*$'\t'}"
 
-            if [ "$selected_type" = "session" ]; then
+            if [ "$selected_type" = "session" ] ||
+                [ "$selected_type" = "exited" ]; then
                 _zellij_switch_to_session "$selected_value"
                 return
             fi
@@ -478,8 +549,26 @@ swap_zellij_session() {
             tr '.' '_'
     )"
 
-    # A session for this project already exists.
-    # Switch to it without modifying its cwd/layout.
+    # Keep the name short enough for zellij's socket path (see
+    # _zellij_max_session_name_length). Truncation is deterministic, so the
+    # same project always maps to the same session name.
+    max_name_length="$(_zellij_max_session_name_length)"
+
+    if [ "$max_name_length" -lt 1 ]; then
+        printf 'zellij socket directory path is too long: %s\n' \
+            "$(_zellij_socket_dir)" >&2
+        return 1
+    fi
+
+    if [ "${#selected_name}" -gt "$max_name_length" ]; then
+        printf 'Session name "%s" is too long for zellij, using "%s"\n' \
+            "$selected_name" "${selected_name:0:$max_name_length}" >&2
+        selected_name="${selected_name:0:$max_name_length}"
+    fi
+
+    # A session for this project already exists (running or exited).
+    # Switch to it without modifying its cwd/layout; exited sessions are
+    # resurrected by zellij.
     if _zellij_session_exists "$selected_name"; then
         _zellij_switch_to_session "$selected_name"
         return
@@ -510,6 +599,7 @@ swap_zellij_session() {
 _zellij_completion_candidates() {
     {
         _zellij_sessions
+        _zellij_exited_sessions
 
         _zellij_projects |
             while IFS= read -r project; do

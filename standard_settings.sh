@@ -34,8 +34,25 @@ if [[ $PROFILE_SHELL == "zsh" && -n "$ZSH" && -f "$ZSH/oh-my-zsh.sh" ]]; then
 		_bashc_source_file "$ZSH/oh-my-zsh.sh" || return 1
 fi
 
+# zsh picks the vi keymap at startup when $EDITOR/$VISUAL contains "vi"
+# (e.g. nvim from local_variables.sh), which shells started inside zellij
+# inherit. Force emacs keybindings so ^A/^E (Cmd+Left/Right) keep working.
+if [[ $PROFILE_SHELL == "zsh" ]] && [[ -o interactive ]]; then
+	bindkey -e
+fi
+
 if [[ $IS_MAC == "true" ]]; then
 	unset NODE_OPTIONS;
+
+	# macOS' long $TMPDIR (/var/folders/...) leaves only ~24 chars for zellij
+	# session names before the socket path exceeds the 103-byte limit, so use
+	# a short socket dir instead. Skipped inside an already running zellij
+	# session: its server uses whatever dir it was started with, and
+	# `zellij action` must look in that same dir to reach it.
+	if [ -z "${ZELLIJ:-}" ] && [ -z "${ZELLIJ_SOCKET_DIR:-}" ]; then
+		ZELLIJ_SOCKET_DIR="/tmp/zellij-$(id -u)"
+		export ZELLIJ_SOCKET_DIR
+	fi
 else
 	echo "";
 	# PS1="\[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\\n\e[0;32m> \e[0m"
