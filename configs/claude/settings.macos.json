@@ -19,7 +19,6 @@
     ]
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "chrome-devtools-mcp@claude-plugins-official": true
   },
