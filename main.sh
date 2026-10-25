@@ -60,7 +60,9 @@ check_for_shell_update_once_a_day () {
 # A network or reload failure must not prevent the already-installed shell
 # configuration (including the local config drift check) from loading. The
 # unchanged date marker makes the updater retry on the next shell start.
-if ! check_for_shell_update_once_a_day; then
+# Its output (git's, and the reload message) goes to stderr so that stdout
+# stays clean for commands run over ssh, such as rsync and scp.
+if ! check_for_shell_update_once_a_day >&2; then
     true
 fi
 

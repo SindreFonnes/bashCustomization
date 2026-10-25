@@ -71,10 +71,11 @@ load_shell_extentionfiles () {
 	_bashc_source_file "$bashC/generalScripts/gScriptMain.sh" || return 1
 	_bashc_source_file "$local_dir/local_main.sh" || return 1
 
+	# Shell startup ("first_load") stays silent: commands run over ssh, such as
+	# rsync and scp, read the remote shell's stdout as their protocol. Failures
+	# are reported on stderr above.
 	if [[ $1 == "" ]]; then
 		echo "Done reloading files!";
-	elif [[ $1 == "first_load" ]]; then
-		echo "Extentions loaded!"
 	fi
 }
 

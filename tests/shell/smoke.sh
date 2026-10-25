@@ -21,6 +21,21 @@ run_shell_checks() {
             command -v git_pull_repo >/dev/null 2>&1
         '
 
+    # Commands run over ssh (rsync, scp) read the remote shell's stdout as
+    # their protocol, so startup must write nothing there, not even a newline
+    # (the trailing x keeps command substitution from dropping newlines).
+    # shellcheck disable=SC2016
+    startup_output=$(env \
+        BASHC_ROOT="$project_root" \
+        BASHC_SKIP_UPDATE_CHECK=1 \
+        BASHC_SKIP_CONFIG_CHECK=1 \
+        "$shell_path" -c '. "$BASHC_ROOT/main.sh"; printf x')
+    startup_output=${startup_output%x}
+    if [ -n "$startup_output" ]; then
+        printf 'shell startup wrote to stdout (%s): %s\n' "$shell_name" "$startup_output" >&2
+        exit 1
+    fi
+
     success_marker="$test_root/${shell_name}-success"
     # shellcheck disable=SC2016
     env \

@@ -42,6 +42,10 @@ interactive shells. Set `BASHC_SKIP_UPDATE_CHECK=1` or
 `BASHC_SKIP_CONFIG_CHECK=1` to disable those startup hooks while diagnosing a
 problem.
 
+Startup writes nothing to stdout, since commands run over ssh (rsync, scp) read
+the remote shell's stdout as their protocol. Failures, and the daily update's
+output, go to stderr. `tests/shell/smoke.sh` checks this.
+
 ## Build the current Rust binary
 
 The current source version includes both installer and config commands:
