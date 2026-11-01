@@ -33,6 +33,7 @@ script_names=( \
 	"generateSSLCert" \
 	"updateDiscord" \
 	"launchSteam" \
+	"toggleAudio" \
 )
 
 case "${input}" in
@@ -68,6 +69,9 @@ case "${input}" in
 		;;
 	"${script_names[10]}")
 		run_install_script "${GENERAL_SCRIPTS_FOLDER_LOCATION}/${script_names[10]}.sh" || status=$?
+		;;
+	"${script_names[11]}")
+		bash "${GENERAL_SCRIPTS_FOLDER_LOCATION}/toggleAudio.sh" "${@:2}" || status=$?
 		;;
 	"help")
 		echo "Here are all the script options";

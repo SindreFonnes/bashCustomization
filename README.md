@@ -46,6 +46,33 @@ Startup writes nothing to stdout, since commands run over ssh (rsync, scp) read
 the remote shell's stdout as their protocol. Failures, and the daily update's
 output, go to stderr. `tests/shell/smoke.sh` checks this.
 
+## Toggle audio output (Linux / PipeWire)
+
+`toggleAudio` switches the default playback output between the Logitech PRO X
+Wireless Gaming Headset and Line out on the Ryzen HD Audio Controller, then
+prints the active output. It requires `wpctl` (WirePlumber), `pw-dump`
+(PipeWire), and `jq`; dependencies are checked only when the command runs.
+
+```sh
+toggleAudio
+toggleAudio --status  # Print the current output without switching
+```
+
+The alias loads with the general scripts module. Open a new shell or source
+`main.sh` after updating this checkout. `gscript toggleAudio [--status]` is also
+available. Use the system default output in Discord so it follows these changes.
+
+Device names belong in the ignored `local/local_variables.sh`, exported as
+`bashc_audio_headset_sink` and `bashc_audio_lineout_sink`. Use the exact PipeWire
+node names shown by `wpctl status -n`; these are resolved to live IDs each run.
+Both settings must be nonempty and distinct, both outputs must be present,
+and the current output must be one of the pair. Otherwise the command exits
+with an error without changing the default. A checkout on another machine has
+no configured pair until its local settings are added. `--status` works without
+that configuration. Missing tools or an inaccessible audio session also fail
+without changing the default. Audio checks run only when invoked, so other
+platforms can still load the shell framework normally.
+
 ## Build the current Rust binary
 
 The current source version includes both installer and config commands:
